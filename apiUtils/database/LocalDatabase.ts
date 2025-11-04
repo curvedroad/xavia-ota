@@ -18,7 +18,7 @@ export class PostgresDatabase implements DatabaseInterface {
   }
   async getLatestReleaseRecordForRuntimeVersion(runtimeVersion: string): Promise<Release | null> {
     const query = `
-      SELECT id, runtime_version as "runtimeVersion", path, timestamp, commit_hash as "commitHash"
+      SELECT id, runtime_version as "runtimeVersion", path, timestamp, commit_hash as "commitHash", update_id as "updateId"
       FROM ${Tables.RELEASES} WHERE runtime_version = $1
       ORDER BY timestamp DESC
       LIMIT 1
@@ -29,7 +29,7 @@ export class PostgresDatabase implements DatabaseInterface {
   }
   async getReleaseByPath(path: string): Promise<Release | null> {
     const query = `
-      SELECT id, runtime_version as "runtimeVersion", path, timestamp, commit_hash as "commitHash"
+      SELECT id, runtime_version as "runtimeVersion", path, timestamp, commit_hash as "commitHash", update_id as "updateId"
       FROM ${Tables.RELEASES} WHERE path = $1
     `;
     const { rows } = await this.pool.query(query, [path]);
@@ -95,7 +95,7 @@ export class PostgresDatabase implements DatabaseInterface {
 
   async getRelease(id: string): Promise<Release | null> {
     const query = `
-      SELECT id, runtime_version as "runtimeVersion", path, timestamp, commit_hash as "commitHash"
+      SELECT id, runtime_version as "runtimeVersion", path, timestamp, commit_hash as "commitHash", update_id as "updateId"
       FROM ${Tables.RELEASES} WHERE id = $1
     `;
 

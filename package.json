@@ -43,6 +43,7 @@
     "@types/formidable": "^3.4.5",
     "@types/jest": "^27.4.1",
     "@types/mime": "^2.0.3",
+    "@types/node": "24.10.0",
     "@types/pg": "^8.11.10",
     "@types/react": "^18.0.1",
     "autoprefixer": "^10.4.20",
