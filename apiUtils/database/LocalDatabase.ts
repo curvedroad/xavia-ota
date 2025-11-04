@@ -13,6 +13,7 @@ export class PostgresDatabase implements DatabaseInterface {
       database: process.env.POSTGRES_DB,
       host: process.env.POSTGRES_HOST,
       port: parseInt(process.env.POSTGRES_PORT ?? '5432', 10),
+      options: process.env.POSTGRES_OPTIONS,
     });
   }
   async getLatestReleaseRecordForRuntimeVersion(runtimeVersion: string): Promise<Release | null> {
