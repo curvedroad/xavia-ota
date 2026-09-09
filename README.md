@@ -90,11 +90,15 @@ Check [this](./docs/laod_testing.md) on how to run load testing for your OTA ser
 3. Configure your environment variables in `.env.local`. The minimal required configuration is:
    ```env
    HOST=http://localhost:3000
+   NEXTAUTH_URL=http://localhost:3000
    BLOB_STORAGE_TYPE=local
    DB_TYPE=postgres
-   ADMIN_PASSWORD=your-admin-password
+   GOOGLE_CLIENT_ID=your-google-oauth-client-id
+   GOOGLE_CLIENT_SECRET=your-google-oauth-client-secret
+   GOOGLE_ALLOWED_DOMAIN=curved-road.com
+   GOOGLE_ALLOWED_EMAILS=admin@curved-road.com
+   NEXTAUTH_SECRET=generate-with-openssl-rand-base64-32
    PRIVATE_KEY_BASE_64=your-base64-encoded-private-key
-   UPLOAD_KEY=abc123def456
    POSTGRES_USER=postgres
    POSTGRES_PASSWORD=postgres
    POSTGRES_DB=releases_db
@@ -131,7 +135,8 @@ See docs on the `updates.url` parameter [here](https://docs.expo.dev/versions/la
 We provide a simple script `build-and-publish-app-release.sh` in the `scripts` folder to build and publish your app updates, copy it to your RN app root folder and run it from there:
 
 ```shell
-./build-and-publish-app-release.sh <runtimeVersion> <your-xavia-ota-url> <uploadKey>
+NEWSBOY_OTA_API_KEY='<key-issued-in-the-admin-console>' \
+  ./build-and-publish-app-release.sh <runtimeVersion> <your-xavia-ota-url>
 ```
 
 > **Important**: Make sure the runtime version is the same as the one you use in your expo-updates config in your app. 
@@ -139,7 +144,8 @@ We provide a simple script `build-and-publish-app-release.sh` in the `scripts` f
 
 Example:
 ```shell
-./build-and-publish-app-release.sh 1.0.0 http://localhost:3000 abc123def456
+NEWSBOY_OTA_API_KEY='nbota_...' \
+  ./build-and-publish-app-release.sh 1.0.0 http://localhost:3000
 ```
 
 This script will:
@@ -163,10 +169,14 @@ What happens behind the scenes is that we copy the inactive update with a new ti
 
 For more information about the admin dashboard, please refer to the [Admin Dashboard](./docs/adminPortal.md) documentation.
 
+The dashboard uses Google OAuth with both a verified hosted domain and an explicit email
+allowlist. Uploads use revocable, expiring API keys issued from the console. See the
+[authentication guide](./docs/authentication.md).
+
 ## Technical Stack
 
 ### Core Technologies
-- **Framework**: Next.js 15+
+- **Framework**: Next.js 16
 - **Language**: TypeScript
 - **Database**: PostgreSQL 14
 - **UI Library**: Chakra UI (v2) and Tailwind CSS for styling
@@ -174,7 +184,7 @@ For more information about the admin dashboard, please refer to the [Admin Dashb
 
 ### Storage Options
 - Local filesystem storage for development
-- Supabase storage for production deployments
+- S3-compatible object storage for production deployments
   
 Read more about supported blob storage and database options [here](./docs/supportedStorageAlternatives.md).
 
@@ -249,9 +259,7 @@ So the "yes" part is for the ability to use Xavia OTA updates with bare React Na
 </summary>
 
 Currently, we support:
-- Supabase Storage
 - Local filesystem storage
-- Google Cloud Storage (gcs)
 - AWS S3 Compatible Storage (s3)
 
 More providers (S3, Azure, etc.) are welcome to be implemented by the community. The `StorageInterface` is quite simple and you can implement it for any blob storage service.

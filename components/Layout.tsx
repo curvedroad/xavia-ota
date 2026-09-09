@@ -1,19 +1,23 @@
 import { Box, Flex, VStack, Button, FlexProps } from '@chakra-ui/react';
 import { useRouter } from 'next/router';
 import { FaSignOutAlt, FaTachometerAlt, FaTags } from 'react-icons/fa';
+import { FaClockRotateLeft, FaKey } from 'react-icons/fa6';
 import Image from 'next/image';
+import { signOut, useSession } from 'next-auth/react';
 
 export default function Layout({ children, ...props }: { children: React.ReactNode } & FlexProps) {
   const router = useRouter();
+  const { data: session } = useSession();
 
   const navItems = [
     { name: 'Dashboard', path: '/dashboard', icon: <FaTachometerAlt fontSize="1.25rem" /> },
     { name: 'Releases', path: '/releases', icon: <FaTags fontSize="1.25rem" /> },
+    { name: 'API Keys', path: '/api-keys', icon: <FaKey fontSize="1.25rem" /> },
+    { name: 'Audit Logs', path: '/audit-logs', icon: <FaClockRotateLeft fontSize="1.25rem" /> },
   ];
 
-  const handleLogout = () => {
-    localStorage.removeItem('isAuthenticated');
-    router.push('/');
+  const handleLogout = async () => {
+    await signOut({ callbackUrl: '/' });
   };
 
   return (
@@ -59,13 +63,18 @@ export default function Layout({ children, ...props }: { children: React.ReactNo
               </Button>
             ))}
           </VStack>
-          <Button
-            variant="outline"
-            colorScheme="red"
-            onClick={handleLogout}
-            rightIcon={<FaSignOutAlt />}>
-            Logout
-          </Button>
+          <VStack spacing={2} align="stretch">
+            <Box fontSize="xs" color="gray.500" overflowWrap="anywhere">
+              {session?.user?.email}
+            </Box>
+            <Button
+              variant="outline"
+              colorScheme="red"
+              onClick={handleLogout}
+              rightIcon={<FaSignOutAlt />}>
+              Logout
+            </Button>
+          </VStack>
         </Box>
         <Box flex={1} p={8}>
           {children}

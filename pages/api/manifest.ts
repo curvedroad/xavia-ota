@@ -11,6 +11,7 @@ import { ZipHelper } from '../../apiUtils/helpers/ZipHelper';
 import { getLogger } from '../../apiUtils/logger';
 import { DatabaseFactory } from '../../apiUtils/database/DatabaseFactory';
 import moment from 'moment';
+import { isValidRuntimeVersion } from '../../apiUtils/security/input';
 
 const logger = getLogger('manifest');
 
@@ -39,6 +40,11 @@ export default async function manifestEndpoint(req: NextApiRequest, res: NextApi
   }
 
   const protocolVersion = parseInt(protocolVersionMaybeArray ?? '0', 10);
+  if (protocolVersion !== 0 && protocolVersion !== 1) {
+    res.statusCode = 400;
+    res.json({ error: 'Unsupported protocol version. Expected either 0 or 1.' });
+    return;
+  }
 
   const platform = req.headers['expo-platform'] ?? req.query['platform'];
   if (platform !== 'ios' && platform !== 'android') {
@@ -50,10 +56,10 @@ export default async function manifestEndpoint(req: NextApiRequest, res: NextApi
   }
 
   const runtimeVersion = req.headers['expo-runtime-version'] ?? req.query['runtime-version'];
-  if (!runtimeVersion || typeof runtimeVersion !== 'string') {
+  if (!isValidRuntimeVersion(runtimeVersion)) {
     res.statusCode = 400;
     res.json({
-      error: 'No runtimeVersion provided.',
+      error: 'Invalid runtimeVersion.',
     });
     return;
   }
@@ -133,7 +139,7 @@ enum UpdateType {
 
 async function getTypeOfUpdateAsync(updateBundlePath: string): Promise<UpdateType> {
   const zip = await ZipHelper.getZipFromStorage(updateBundlePath);
-  const hasRollback = zip.getEntry('rollback') !== null;
+  const hasRollback = await ZipHelper.hasFile(zip, 'rollback');
   return hasRollback ? UpdateType.ROLLBACK : UpdateType.NORMAL_UPDATE;
 }
 

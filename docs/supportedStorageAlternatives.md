@@ -1,67 +1,40 @@
-# Storage & Database Configuration
+# Storage and database configuration
 
-## Supported Storage Providers
-Xavia OTA supports multiple storage backends for storing update assets. Configure using `BLOB_STORAGE_TYPE`.
+The Newsboy deployment deliberately supports a small set of backends:
 
-### Supabase Storage
-```env
-BLOB_STORAGE_TYPE=supabase
-SUPABASE_URL=your-project-url
-SUPABASE_API_KEY=your-service-role-key
-SUPABASE_BUCKET_NAME=expo-updates
-```
-- Requires a Supabase project with storage enabled
-- Bucket should be created manually before starting the server
+- `BLOB_STORAGE_TYPE=local` for local development only.
+- `BLOB_STORAGE_TYPE=s3` for production S3-compatible object storage, including NCloud Object Storage.
+- `DB_TYPE=postgres` for release metadata, download tracking, API keys, and audit logs.
 
-### Local Storage
+## Local storage
+
 ```env
 BLOB_STORAGE_TYPE=local
 ```
-- Stores files directly on the server filesystem
-- Useful for development or single-server deployments
-- Ensure the path has proper write permissions
 
-### GCS Storage
-```env
-BLOB_STORAGE_TYPE=gcs
-GCP_BUCKET_NAME=your-gcs-bucket-name
-```
-- Requires a GCP project with GCS bucket enabled
-- Bucket should be created manually before starting the server
+Local storage is not suitable for an ephemeral Kubernetes Pod.
 
-### AWS S3 Compatible Storage
+## S3-compatible storage
+
 ```env
 BLOB_STORAGE_TYPE=s3
-S3_REGION=auto
-S3_ENDPOINT=your-s3-endpoint
+S3_REGION=kr-standard
+S3_ENDPOINT=https://kr.object.ncloudstorage.com
 S3_ACCESS_KEY_ID=your-access-key-id
 S3_SECRET_ACCESS_KEY=your-secret-access-key
-S3_BUCKET_NAME=your-s3-bucket-name
+S3_BUCKET_NAME=your-bucket-name
 ```
-- Support all S3 compatible storage (AWS S3, Digital Ocean Spaces, Cloudflare R2, etc.)
-- Bucket should be created manually before starting the server
 
-## Supported Database Providers
-Database configuration is managed via `DB_TYPE`.
+## PostgreSQL
 
-### Supabase Database
-```env
-DB_TYPE=supabase
-SUPABASE_URL=your-project-url
-SUPABASE_API_KEY=your-service-role-key
-```
-- Uses Supabase's PostgreSQL database
-- Tables should be created manually before starting the server. Refer to the `containers/database/schema` folder for reference.
-
-### PostgreSQL
 ```env
 DB_TYPE=postgres
 POSTGRES_USER=your-user
 POSTGRES_PASSWORD=your-password
 POSTGRES_DB=your-database-name
 POSTGRES_HOST=your-host
-POSTGRES_PORT=your-port
+POSTGRES_PORT=5432
 ```
-- Direct PostgreSQL connection
-- Supports any PostgreSQL-compatible database
-- Tables should be created manually before starting the server. Refer to the `containers/database/schema` folder for reference.
+
+Apply every SQL file under `containers/database/schema` before starting a production release.
+The application database user only needs normal data access after the schema has been applied.

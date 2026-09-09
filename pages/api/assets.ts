@@ -4,13 +4,20 @@ import nullthrows from 'nullthrows';
 
 import { UpdateHelper } from '../../apiUtils/helpers/UpdateHelper';
 import { ZipHelper } from '../../apiUtils/helpers/ZipHelper';
+import { isSafeArchivePath, isValidRuntimeVersion } from '../../apiUtils/security/input';
 
 export default async function assetsEndpoint(req: NextApiRequest, res: NextApiResponse) {
+  if (req.method !== 'GET') {
+    res.setHeader('Allow', 'GET');
+    res.status(405).json({ error: 'Expected GET.' });
+    return;
+  }
+
   const { asset: assetPath, runtimeVersion, platform } = req.query;
 
-  if (!assetPath || typeof assetPath !== 'string') {
+  if (!isSafeArchivePath(assetPath)) {
     res.statusCode = 400;
-    res.json({ error: 'No asset path provided.' });
+    res.json({ error: 'Invalid asset path.' });
     return;
   }
 
@@ -20,31 +27,38 @@ export default async function assetsEndpoint(req: NextApiRequest, res: NextApiRe
     return;
   }
 
-  if (!runtimeVersion || typeof runtimeVersion !== 'string') {
+  if (!isValidRuntimeVersion(runtimeVersion)) {
     res.statusCode = 400;
-    res.json({ error: 'No runtimeVersion provided.' });
+    res.json({ error: 'Invalid runtimeVersion.' });
     return;
   }
 
   try {
     const updateBundlePath = await UpdateHelper.getLatestUpdateBundlePathForRuntimeVersionAsync(
-      runtimeVersion as string
+      runtimeVersion
     );
     const zip = await ZipHelper.getZipFromStorage(updateBundlePath);
 
     const { metadataJson } = await UpdateHelper.getMetadataAsync({
       updateBundlePath,
-      runtimeVersion: runtimeVersion as string,
+      runtimeVersion,
     });
 
-    const assetMetadata = metadataJson.fileMetadata[platform].assets.find(
-      (asset: any) => asset.path === assetPath
-    );
-    const isLaunchAsset = metadataJson.fileMetadata[platform].bundle === assetPath;
+    const platformMetadata = metadataJson?.fileMetadata?.[platform];
+    if (!platformMetadata || !Array.isArray(platformMetadata.assets)) {
+      throw new Error('Release metadata is invalid');
+    }
+    const assetMetadata = platformMetadata.assets.find((asset: any) => asset.path === assetPath);
+    const isLaunchAsset = platformMetadata.bundle === assetPath;
+    if (!assetMetadata && !isLaunchAsset) {
+      res.status(404).json({ error: 'Asset not found.' });
+      return;
+    }
 
-    const asset = await ZipHelper.getFileFromZip(zip, assetPath as string);
+    const asset = await ZipHelper.getFileFromZip(zip, assetPath);
 
     res.statusCode = 200;
+    res.setHeader('cache-control', 'private, max-age=0');
     res.setHeader(
       'content-type',
       isLaunchAsset ? 'application/javascript' : nullthrows(mime.getType(assetMetadata.ext))
@@ -53,6 +67,6 @@ export default async function assetsEndpoint(req: NextApiRequest, res: NextApiRe
   } catch (error) {
     console.error(error);
     res.statusCode = 500;
-    res.json({ error });
+    res.json({ error: 'Failed to load asset.' });
   }
 }

@@ -2,6 +2,7 @@ import mime from 'mime';
 
 import { HashHelper } from './HashHelper';
 import { ZipHelper } from './ZipHelper';
+import { DatabaseFactory } from '../database/DatabaseFactory';
 import { StorageFactory } from '../storage/StorageFactory';
 
 export class NoUpdateAvailableError extends Error {}
@@ -27,22 +28,22 @@ export class UpdateHelper {
   static async getLatestUpdateBundlePathForRuntimeVersionAsync(
     runtimeVersion: string
   ): Promise<string> {
-    const storage = StorageFactory.getStorage();
-    const updatesDirectoryForRuntimeVersion = `updates/${runtimeVersion}`;
-
-    if (!(await storage.fileExists(updatesDirectoryForRuntimeVersion))) {
+    const release = await DatabaseFactory.getDatabase().getLatestReleaseRecordForRuntimeVersion(
+      runtimeVersion
+    );
+    if (!release) {
       throw new NoUpdateAvailableError();
     }
-
-    const zipFiles = (await storage.listFiles(updatesDirectoryForRuntimeVersion))
-      .filter((file) => file.name.endsWith('.zip'))
-      .sort((a, b) => parseInt(b.name.split('.')[0], 10) - parseInt(a.name.split('.')[0], 10));
-
-    if (!zipFiles.length) {
-      throw new Error(`No updates found for runtime version: ${runtimeVersion}`);
+    if (!release.path.endsWith('.zip')) {
+      throw new Error(`Invalid release path for runtime version: ${runtimeVersion}`);
     }
 
-    return `${updatesDirectoryForRuntimeVersion}/${zipFiles[0].name.replace('.zip', '')}`;
+    const storage = StorageFactory.getStorage();
+    if (!(await storage.fileExists(release.path))) {
+      throw new Error(`Release file is missing for runtime version: ${runtimeVersion}`);
+    }
+
+    return release.path.slice(0, -'.zip'.length);
   }
 
   static async getAssetMetadataAsync(arg: GetAssetMetadataArg) {
@@ -90,7 +91,7 @@ export class UpdateHelper {
   static async createRollBackDirectiveAsync(updateBundlePath: string) {
     try {
       const zip = await ZipHelper.getZipFromStorage(updateBundlePath);
-      const hasRollback = zip.getEntry('rollback') !== null;
+      const hasRollback = await ZipHelper.hasFile(zip, 'rollback');
 
       if (hasRollback) {
         return {

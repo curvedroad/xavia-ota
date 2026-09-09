@@ -1,53 +1,37 @@
-'use client';
-
-import { useState } from 'react';
+import { Box, Button, Heading, Text, VStack } from '@chakra-ui/react';
+import { signIn, useSession } from 'next-auth/react';
 import { useRouter } from 'next/router';
-import { Box, Button, FormControl, FormErrorMessage, Input } from '@chakra-ui/react';
+import { useEffect } from 'react';
+
+import LoadingSpinner from '../components/LoadingSpinner';
 
 export default function Home() {
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  const { data: session, status } = useSession();
   const router = useRouter();
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      const response = await fetch('/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
-      });
-
-      const data = await response.json();
-      if (!response.ok) {
-        setError(data.error);
-      } else {
-        localStorage.setItem('isAuthenticated', 'true');
-        router.push('/dashboard');
-      }
-    } catch (err) {
-      setError('Failed to login');
-      console.error(err);
+  useEffect(() => {
+    if (status === 'authenticated') {
+      router.replace('/dashboard').catch(() => undefined);
     }
-  };
+  }, [router, status]);
+
+  if (status === 'loading' || session) return <LoadingSpinner />;
+
+  const authError = typeof router.query.error === 'string' ? router.query.error : null;
 
   return (
-    <Box display="flex" minHeight="100vh" alignItems="center" justifyContent="center">
-      <form onSubmit={handleLogin}>
-        <FormControl isInvalid={!!error} mb={4}>
-          <Input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Enter admin password"
-            size="md"
-          />
-          {error && <FormErrorMessage>{error}</FormErrorMessage>}
-        </FormControl>
-        <Button type="submit" colorScheme="blue" width="full">
-          Login
+    <Box display="flex" minHeight="100vh" alignItems="center" justifyContent="center" px={6}>
+      <VStack spacing={6} maxWidth="420px" textAlign="center">
+        <Heading size="lg">Newsboy OTA Console</Heading>
+        <Text color="gray.600">승인된 CurvedRoad Google 계정으로 로그인하세요.</Text>
+        {authError && <Text color="red.500">로그인이 허용되지 않았습니다.</Text>}
+        <Button
+          colorScheme="blue"
+          width="full"
+          onClick={() => signIn('google', { callbackUrl: '/dashboard' })}>
+          Google로 로그인
         </Button>
-      </form>
+      </VStack>
     </Box>
   );
 }

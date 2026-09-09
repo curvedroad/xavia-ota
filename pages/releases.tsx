@@ -30,6 +30,7 @@ import ProtectedRoute from '../components/ProtectedRoute';
 import { showToast } from '../components/toast';
 
 interface Release {
+  id: string | null;
   path: string;
   runtimeVersion: string;
   timestamp: string;
@@ -135,6 +136,7 @@ export default function ReleasesPage() {
                               variant="solid"
                               colorScheme="orange"
                               size="sm"
+                              isDisabled={!release.id}
                               onClick={async () => {
                                 setIsOpen(true);
                                 setSelectedRelease(release);
@@ -183,10 +185,7 @@ export default function ReleasesPage() {
                                               'Content-Type': 'application/json',
                                             },
                                             body: JSON.stringify({
-                                              path: selectedRelease?.path,
-                                              runtimeVersion: selectedRelease?.runtimeVersion,
-                                              commitHash: selectedRelease?.commitHash,
-                                              commitMessage: selectedRelease?.commitMessage,
+                                              releaseId: selectedRelease?.id,
                                             }),
                                           });
 

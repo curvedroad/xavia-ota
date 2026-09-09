@@ -31,9 +31,10 @@ export class S3Storage implements StorageInterface {
   }
 
   async copyFile(sourcePath: string, destinationPath: string): Promise<void> {
+    const encodedSourcePath = sourcePath.split('/').map(encodeURIComponent).join('/');
     const copyCommand = new CopyObjectCommand({
       Bucket: this.bucketName,
-      CopySource: sourcePath,
+      CopySource: `${this.bucketName}/${encodedSourcePath}`,
       Key: destinationPath,
     });
     await this.client.send(copyCommand);
@@ -54,15 +55,9 @@ export class S3Storage implements StorageInterface {
 
   async fileExists(path: string): Promise<boolean> {
     try {
-      const files = await this.listDirectories(path);
-      if (files.length > 0) {
-        return true;
-      }
-    } catch {}
-    try {
       const headCommand = new HeadObjectCommand({
         Bucket: this.bucketName,
-        Key: path.split('/').shift(),
+        Key: path,
       });
       await this.client.send(headCommand);
       return true;

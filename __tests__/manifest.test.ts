@@ -1,4 +1,3 @@
-import AdmZip from 'adm-zip';
 import { createMocks } from 'node-mocks-http';
 import FormData from 'form-data';
 
@@ -26,7 +25,7 @@ describe('Manifest API', () => {
     const { req, res } = createMocks({ method: 'POST' });
     await manifestEndpoint(req, res);
     expect(res._getStatusCode()).toBe(405);
-    expect(JSON.parse(res._getData())).toMatchSnapshot();
+    expect(JSON.parse(res._getData())).toEqual({ error: 'Expected GET.' });
   });
 
   it('should return 400 for invalid platform', async () => {
@@ -39,7 +38,9 @@ describe('Manifest API', () => {
     });
     await manifestEndpoint(req, res);
     expect(res._getStatusCode()).toBe(400);
-    expect(JSON.parse(res._getData())).toMatchSnapshot();
+    expect(JSON.parse(res._getData())).toEqual({
+      error: 'Unsupported platform. Expected either ios or android.',
+    });
   });
 
   it('should return 400 for missing runtime version', async () => {
@@ -51,7 +52,38 @@ describe('Manifest API', () => {
     });
     await manifestEndpoint(req, res);
     expect(res._getStatusCode()).toBe(400);
-    expect(JSON.parse(res._getData())).toMatchSnapshot();
+    expect(JSON.parse(res._getData())).toEqual({ error: 'Invalid runtimeVersion.' });
+  });
+
+  it('should reject an unsafe runtime version before reading the database', async () => {
+    const { req, res } = createMocks({
+      method: 'GET',
+      headers: {
+        'expo-platform': 'ios',
+        'expo-runtime-version': '../../other',
+      },
+    });
+
+    await manifestEndpoint(req, res);
+
+    expect(res._getStatusCode()).toBe(400);
+    expect(DatabaseFactory.getDatabase).not.toHaveBeenCalled();
+  });
+
+  it('should reject an unsupported protocol version', async () => {
+    const { req, res } = createMocks({
+      method: 'GET',
+      headers: {
+        'expo-platform': 'ios',
+        'expo-runtime-version': '1.0.0',
+        'expo-protocol-version': '2',
+      },
+    });
+
+    await manifestEndpoint(req, res);
+
+    expect(res._getStatusCode()).toBe(400);
+    expect(DatabaseFactory.getDatabase).not.toHaveBeenCalled();
   });
 
   it('should return NoUpdateAvailable when user is already running the latest release', async () => {
@@ -161,10 +193,9 @@ describe('Manifest API', () => {
     (ConfigHelper.getExpoConfigAsync as jest.Mock).mockResolvedValue({});
 
     // Mock ZipHelper
-    const mockZip = {
-      getEntry: jest.fn().mockReturnValue(null),
-    };
-    (ZipHelper.getZipFromStorage as jest.Mock).mockResolvedValue(mockZip as unknown as AdmZip);
+    const mockZip = Buffer.from('zip');
+    (ZipHelper.getZipFromStorage as jest.Mock).mockResolvedValue(mockZip);
+    (ZipHelper.hasFile as jest.Mock).mockResolvedValue(false);
 
     // Mock FormData
     const mockFormData = {
@@ -215,10 +246,9 @@ describe('Manifest API', () => {
     });
 
     // Mock ZipHelper to indicate rollback
-    const mockZip = {
-      getEntry: jest.fn().mockReturnValue({ name: 'rollback' }), // Return non-null to indicate rollback
-    };
-    (ZipHelper.getZipFromStorage as jest.Mock).mockResolvedValue(mockZip as unknown as AdmZip);
+    const mockZip = Buffer.from('zip');
+    (ZipHelper.getZipFromStorage as jest.Mock).mockResolvedValue(mockZip);
+    (ZipHelper.hasFile as jest.Mock).mockResolvedValue(true);
 
     // Mock FormData
     const mockFormData = {
@@ -280,10 +310,9 @@ describe('Manifest API', () => {
     );
 
     // Mock ZipHelper
-    const mockZip = {
-      getEntry: jest.fn().mockReturnValue(null), // Not a rollback
-    };
-    (ZipHelper.getZipFromStorage as jest.Mock).mockResolvedValue(mockZip as unknown as AdmZip);
+    const mockZip = Buffer.from('zip');
+    (ZipHelper.getZipFromStorage as jest.Mock).mockResolvedValue(mockZip);
+    (ZipHelper.hasFile as jest.Mock).mockResolvedValue(false);
 
     // Mock FormData
     const mockFormData = {
