@@ -39,9 +39,37 @@ describe('audit log route', () => {
     await auditLogsHandler(req, res);
 
     expect(res._getStatusCode()).toBe(200);
-    expect(listAuditLogs).toHaveBeenCalledWith(500);
+    expect(listAuditLogs).toHaveBeenCalledWith(501, undefined);
     expect(recordAudit).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'audit_log.list', outcome: 'success' })
     );
+  });
+
+  it('returns an id-desc cursor when another page exists', async () => {
+    const rows = [{ id: '12' }, { id: '11' }, { id: '10' }];
+    const listAuditLogs = jest.fn().mockResolvedValue(rows);
+    (DatabaseFactory.getDatabase as jest.Mock).mockReturnValue({ listAuditLogs });
+    const { req, res } = createMocks({
+      method: 'GET',
+      query: { limit: '2', beforeId: '13' },
+    });
+
+    await auditLogsHandler(req, res);
+
+    expect(res._getStatusCode()).toBe(200);
+    expect(listAuditLogs).toHaveBeenCalledWith(3, '13');
+    expect(JSON.parse(res._getData())).toEqual({
+      auditLogs: [{ id: '12' }, { id: '11' }],
+      nextCursor: '11',
+    });
+  });
+
+  it('rejects an invalid cursor before querying the database', async () => {
+    const { req, res } = createMocks({ method: 'GET', query: { beforeId: '1 OR 1=1' } });
+
+    await auditLogsHandler(req, res);
+
+    expect(res._getStatusCode()).toBe(400);
+    expect(DatabaseFactory.getDatabase).not.toHaveBeenCalled();
   });
 });

@@ -76,5 +76,5 @@ export interface DatabaseInterface {
   markApiKeyUsed(id: string): Promise<void>;
   revokeApiKey(id: string): Promise<ApiKeyRecord | null>;
   createAuditLog(log: AuditLogInput): Promise<void>;
-  listAuditLogs(limit: number): Promise<AuditLogRecord[]>;
+  listAuditLogs(limit: number, beforeId?: string | null): Promise<AuditLogRecord[]>;
 }

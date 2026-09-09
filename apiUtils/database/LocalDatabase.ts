@@ -213,17 +213,18 @@ export class PostgresDatabase implements DatabaseInterface {
     ]);
   }
 
-  async listAuditLogs(limit: number): Promise<AuditLogRecord[]> {
+  async listAuditLogs(limit: number, beforeId?: string | null): Promise<AuditLogRecord[]> {
     const query = `
       SELECT id, created_at as "createdAt", request_id as "requestId",
         actor_type as "actorType", actor_id as "actorId", action, outcome,
         http_status as "httpStatus", target_type as "targetType", target_id as "targetId",
         host(ip_address) as "ipAddress", user_agent as "userAgent", metadata
       FROM ${Tables.AUDIT_LOGS}
-      ORDER BY created_at DESC
+      WHERE ($2::bigint IS NULL OR id < $2::bigint)
+      ORDER BY id DESC
       LIMIT $1
     `;
-    const { rows } = await this.pool.query(query, [limit]);
+    const { rows } = await this.pool.query(query, [limit, beforeId ?? null]);
     return rows.map((row) => ({
       id: row.id,
       createdAt: row.createdAt,
