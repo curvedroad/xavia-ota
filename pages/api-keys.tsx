@@ -8,8 +8,14 @@ import {
   Heading,
   HStack,
   Input,
-  NumberInput,
-  NumberInputField,
+  Modal,
+  ModalBody,
+  ModalCloseButton,
+  ModalContent,
+  ModalFooter,
+  ModalHeader,
+  ModalOverlay,
+  Select,
   Table,
   Tbody,
   Td,
@@ -17,6 +23,7 @@ import {
   Th,
   Thead,
   Tr,
+  useDisclosure,
   VStack,
 } from '@chakra-ui/react';
 import { useCallback, useEffect, useState } from 'react';
@@ -49,6 +56,8 @@ export default function ApiKeysPage() {
   const [expiresInDays, setExpiresInDays] = useState(90);
   const [issued, setIssued] = useState<IssuedApiKey | null>(null);
   const [error, setError] = useState('');
+  const [isCreating, setIsCreating] = useState(false);
+  const { isOpen, onOpen, onClose } = useDisclosure();
 
   const loadApiKeys = useCallback(async () => {
     const response = await fetch('/api/api-keys');
@@ -64,19 +73,35 @@ export default function ApiKeysPage() {
   const create = async () => {
     setError('');
     setIssued(null);
-    const response = await fetch('/api/api-keys', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, expiresInDays }),
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      setError(data.error || 'API 키 발급에 실패했습니다.');
-      return;
+    setIsCreating(true);
+    try {
+      const response = await fetch('/api/api-keys', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name.trim(), expiresInDays }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setError(data.error || 'API 키 발급에 실패했습니다.');
+        return;
+      }
+      setIssued(data.apiKey);
+      setName('');
+      setExpiresInDays(90);
+      onClose();
+      await loadApiKeys();
+    } catch (createError) {
+      setError(String(createError));
+    } finally {
+      setIsCreating(false);
     }
-    setIssued(data.apiKey);
+  };
+
+  const openCreateModal = () => {
     setName('');
-    await loadApiKeys();
+    setExpiresInDays(90);
+    setError('');
+    onOpen();
   };
 
   const revoke = async (id: string) => {
@@ -94,27 +119,9 @@ export default function ApiKeysPage() {
     <ProtectedRoute>
       <Layout>
         <VStack align="stretch" spacing={6}>
-          <Heading size="lg">Upload API Keys</Heading>
-          <HStack align="end" spacing={4}>
-            <FormControl maxW="320px">
-              <FormLabel>키 이름</FormLabel>
-              <Input
-                value={name}
-                maxLength={100}
-                onChange={(event) => setName(event.target.value)}
-              />
-            </FormControl>
-            <FormControl maxW="160px">
-              <FormLabel>유효 기간(일)</FormLabel>
-              <NumberInput
-                min={1}
-                max={365}
-                value={expiresInDays}
-                onChange={(_, value) => setExpiresInDays(value)}>
-                <NumberInputField />
-              </NumberInput>
-            </FormControl>
-            <Button colorScheme="blue" onClick={create} isDisabled={!name.trim()}>
+          <HStack justify="space-between" align="center">
+            <Heading size="lg">Upload API Keys</Heading>
+            <Button colorScheme="blue" onClick={openCreateModal}>
               API 키 발급
             </Button>
           </HStack>
@@ -133,7 +140,7 @@ export default function ApiKeysPage() {
               </Box>
             </Alert>
           )}
-          {error && (
+          {error && !isOpen && (
             <Alert status="error">
               <AlertIcon />
               {error}
@@ -180,6 +187,60 @@ export default function ApiKeysPage() {
               })}
             </Tbody>
           </Table>
+
+          <Modal
+            isOpen={isOpen}
+            onClose={onClose}
+            isCentered
+            closeOnEsc={!isCreating}
+            closeOnOverlayClick={!isCreating}>
+            <ModalOverlay />
+            <ModalContent>
+              <ModalHeader>Upload API 키 발급</ModalHeader>
+              <ModalCloseButton isDisabled={isCreating} />
+              <ModalBody>
+                <VStack align="stretch" spacing={4}>
+                  <FormControl isRequired>
+                    <FormLabel>키 이름</FormLabel>
+                    <Input
+                      value={name}
+                      maxLength={100}
+                      placeholder="예: newsboy-front-local"
+                      onChange={(event) => setName(event.target.value)}
+                    />
+                  </FormControl>
+                  <FormControl isRequired>
+                    <FormLabel>유효 기간</FormLabel>
+                    <Select
+                      value={expiresInDays}
+                      onChange={(event) => setExpiresInDays(Number(event.target.value))}>
+                      <option value={30}>30일</option>
+                      <option value={90}>90일</option>
+                      <option value={180}>180일</option>
+                    </Select>
+                  </FormControl>
+                  {error && (
+                    <Alert status="error">
+                      <AlertIcon />
+                      {error}
+                    </Alert>
+                  )}
+                </VStack>
+              </ModalBody>
+              <ModalFooter>
+                <Button mr={3} onClick={onClose} isDisabled={isCreating}>
+                  취소
+                </Button>
+                <Button
+                  colorScheme="blue"
+                  onClick={create}
+                  isDisabled={!name.trim()}
+                  isLoading={isCreating}>
+                  발급
+                </Button>
+              </ModalFooter>
+            </ModalContent>
+          </Modal>
         </VStack>
       </Layout>
     </ProtectedRoute>
