@@ -39,7 +39,6 @@ describe('Releases API', () => {
 
   it('returns authenticated release data', async () => {
     (StorageFactory.getStorage as jest.Mock).mockReturnValue({
-      listDirectories: jest.fn().mockResolvedValue(['1.0.0']),
       listFiles: jest.fn().mockResolvedValue([
         {
           name: 'update.zip',
@@ -52,7 +51,10 @@ describe('Releases API', () => {
       listReleases: jest.fn().mockResolvedValue([
         {
           id: 'release-id',
+          channel: 'production',
           path: 'updates/1.0.0/update.zip',
+          runtimeVersion: '1.0.0',
+          timestamp: '2024-03-20T00:00:00Z',
           commitHash: 'abc1234',
           commitMessage: 'Release',
         },
@@ -63,7 +65,12 @@ describe('Releases API', () => {
     await releasesHandler(req, res);
     expect(res._getStatusCode()).toBe(200);
     expect(JSON.parse(res._getData()).releases[0]).toEqual(
-      expect.objectContaining({ id: 'release-id', commitHash: 'abc1234' })
+      expect.objectContaining({
+        id: 'release-id',
+        channel: 'production',
+        commitHash: 'abc1234',
+        storagePresent: true,
+      })
     );
     expect(recordAudit).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'release.list', outcome: 'success' })

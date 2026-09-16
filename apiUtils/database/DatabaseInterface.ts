@@ -1,5 +1,8 @@
+import { UpdateChannel } from '../security/channel';
+
 export interface Release {
   id: string;
+  channel: UpdateChannel;
   runtimeVersion: string;
   path: string;
   timestamp: string;
@@ -22,6 +25,7 @@ export interface TrackingMetrics {
 
 export interface ApiKeyRecord {
   id: string;
+  channel: UpdateChannel;
   name: string;
   keyPrefix: string;
   keyHash: string;
@@ -63,9 +67,13 @@ export interface DatabaseInterface {
   createTracking(tracking: Omit<Tracking, 'id'>): Promise<Tracking>;
   getReleaseTrackingMetrics(releaseId: string): Promise<TrackingMetrics[]>;
   getReleaseTrackingMetricsForAllReleases(): Promise<TrackingMetrics[]>;
-  getLatestReleaseRecordForRuntimeVersion(runtimeVersion: string): Promise<Release | null>;
+  getLatestReleaseRecordForRuntimeVersion(
+    runtimeVersion: string,
+    channel: UpdateChannel
+  ): Promise<Release | null>;
   createApiKey(apiKey: {
     name: string;
+    channel: UpdateChannel;
     keyPrefix: string;
     keyHash: string;
     createdBy: string;

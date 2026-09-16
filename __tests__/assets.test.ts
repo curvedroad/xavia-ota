@@ -104,7 +104,50 @@ describe('Assets API', () => {
 
     await assetsEndpoint(req, res);
     expect(res._getStatusCode()).toBe(200);
+    expect(UpdateHelper.getLatestUpdateBundlePathForRuntimeVersionAsync).toHaveBeenCalledWith(
+      '1.0.0',
+      'production'
+    );
     expect(res._getData()).toMatchSnapshot();
+  });
+
+  it('uses the explicit qa channel', async () => {
+    (UpdateHelper.getLatestUpdateBundlePathForRuntimeVersionAsync as jest.Mock).mockResolvedValue(
+      'path/to/update'
+    );
+    (UpdateHelper.getMetadataAsync as jest.Mock).mockResolvedValue({
+      metadataJson: { fileMetadata: { ios: { assets: [], bundle: 'bundle.js' } } },
+    });
+    (ZipHelper.getZipFromStorage as jest.Mock).mockResolvedValue({});
+    (ZipHelper.getFileFromZip as jest.Mock).mockResolvedValue(Buffer.from('bundle'));
+
+    const { req, res } = createMocks({
+      method: 'GET',
+      query: { asset: 'bundle.js', platform: 'ios', runtimeVersion: '1.0.0', channel: 'qa' },
+    });
+
+    await assetsEndpoint(req, res);
+    expect(res._getStatusCode()).toBe(200);
+    expect(UpdateHelper.getLatestUpdateBundlePathForRuntimeVersionAsync).toHaveBeenCalledWith(
+      '1.0.0',
+      'qa'
+    );
+  });
+
+  it('rejects an unsupported explicit channel before reading storage', async () => {
+    const { req, res } = createMocks({
+      method: 'GET',
+      query: {
+        asset: 'bundle.js',
+        platform: 'ios',
+        runtimeVersion: '1.0.0',
+        channel: 'preview',
+      },
+    });
+
+    await assetsEndpoint(req, res);
+    expect(res._getStatusCode()).toBe(400);
+    expect(UpdateHelper.getLatestUpdateBundlePathForRuntimeVersionAsync).not.toHaveBeenCalled();
   });
 
   it('should not expose a file that is absent from release metadata', async () => {

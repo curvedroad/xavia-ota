@@ -4,6 +4,7 @@ import { DatabaseFactory } from '../../../apiUtils/database/DatabaseFactory';
 import { issueApiKey } from '../../../apiUtils/security/apiKeys';
 import { requireAdminSession } from '../../../apiUtils/security/auth';
 import { recordAudit } from '../../../apiUtils/security/audit';
+import { isUpdateChannel } from '../../../apiUtils/security/channel';
 import { isSameOriginRequest } from '../../../apiUtils/security/request';
 
 export default async function apiKeysHandler(req: NextApiRequest, res: NextApiResponse) {
@@ -48,9 +49,11 @@ export default async function apiKeysHandler(req: NextApiRequest, res: NextApiRe
   }
 
   const name = typeof req.body?.name === 'string' ? req.body.name : '';
+  const channel = req.body?.channel;
   const expiresInDays = Number(req.body?.expiresInDays ?? 90);
   try {
-    const apiKey = await issueApiKey({ name, createdBy: actor.id, expiresInDays });
+    if (!isUpdateChannel(channel)) throw new Error('API key channel must be production or qa');
+    const apiKey = await issueApiKey({ name, channel, createdBy: actor.id, expiresInDays });
     await recordAudit({
       req,
       actor,
@@ -59,7 +62,12 @@ export default async function apiKeysHandler(req: NextApiRequest, res: NextApiRe
       httpStatus: 201,
       targetType: 'api_key',
       targetId: apiKey.id,
-      metadata: { name: apiKey.name, keyPrefix: apiKey.keyPrefix, expiresAt: apiKey.expiresAt },
+      metadata: {
+        name: apiKey.name,
+        channel: apiKey.channel,
+        keyPrefix: apiKey.keyPrefix,
+        expiresAt: apiKey.expiresAt,
+      },
     });
     res.status(201).json({ apiKey });
   } catch (error) {

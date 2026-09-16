@@ -54,6 +54,7 @@ describe('Rollback API', () => {
   it('looks up trusted release metadata before rollback', async () => {
     const sourceRelease = {
       id: sourceReleaseId,
+      channel: 'qa',
       path: 'updates/1.0.0/old.zip',
       runtimeVersion: '1.0.0',
       timestamp: '2024-03-20T00:00:00Z',
@@ -79,10 +80,11 @@ describe('Rollback API', () => {
     expect(mockDatabase.getRelease).toHaveBeenCalledWith(sourceReleaseId);
     expect(mockStorage.copyFile).toHaveBeenCalledWith(
       sourceRelease.path,
-      expect.stringMatching(/^updates\/1\.0\.0\/\d{14}\.zip$/)
+      expect.stringMatching(/^updates\/qa\/1\.0\.0\/\d{14}\.zip$/)
     );
     expect(mockDatabase.createRelease).toHaveBeenCalledWith(
       expect.objectContaining({
+        channel: 'qa',
         runtimeVersion: sourceRelease.runtimeVersion,
         commitHash: sourceRelease.commitHash,
         commitMessage: sourceRelease.commitMessage,

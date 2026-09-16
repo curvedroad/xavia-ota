@@ -11,6 +11,7 @@ import { ZipHelper } from '../../apiUtils/helpers/ZipHelper';
 import { getLogger } from '../../apiUtils/logger';
 import { DatabaseFactory } from '../../apiUtils/database/DatabaseFactory';
 import moment from 'moment';
+import { getClientUpdateChannel, UpdateChannel } from '../../apiUtils/security/channel';
 import { isValidRuntimeVersion } from '../../apiUtils/security/input';
 
 const logger = getLogger('manifest');
@@ -28,6 +29,7 @@ export default async function manifestEndpoint(req: NextApiRequest, res: NextApi
     protocolVersion: req.headers['expo-protocol-version'],
     apiVersion: req.headers['expo-api-version'],
     currentUpdateId: req.headers['expo-current-update-id'],
+    channel: req.headers['expo-channel-name'],
   });
 
   const protocolVersionMaybeArray = req.headers['expo-protocol-version'];
@@ -64,8 +66,18 @@ export default async function manifestEndpoint(req: NextApiRequest, res: NextApi
     return;
   }
 
+  const channel = getClientUpdateChannel(req.headers['expo-channel-name'] ?? req.query['channel']);
+  if (!channel) {
+    res.statusCode = 400;
+    res.json({ error: 'Unsupported channel. Expected either production or qa.' });
+    return;
+  }
+
   const database = DatabaseFactory.getDatabase();
-  const releaseRecord = await database.getLatestReleaseRecordForRuntimeVersion(runtimeVersion);
+  const releaseRecord = await database.getLatestReleaseRecordForRuntimeVersion(
+    runtimeVersion,
+    channel
+  );
 
   if (releaseRecord) {
     const updateId = releaseRecord.updateId;
@@ -74,6 +86,7 @@ export default async function manifestEndpoint(req: NextApiRequest, res: NextApi
     if (currentUpdateId === updateId) {
       logger.info('User is already running the latest release. Returning NoUpdateAvailable.', {
         runtimeVersion,
+        channel,
       });
       await putNoUpdateAvailableInResponseAsync(req, res, protocolVersion);
       return;
@@ -83,7 +96,8 @@ export default async function manifestEndpoint(req: NextApiRequest, res: NextApi
   let updateBundlePath: string;
   try {
     updateBundlePath = await UpdateHelper.getLatestUpdateBundlePathForRuntimeVersionAsync(
-      runtimeVersion
+      runtimeVersion,
+      channel
     );
   } catch (error: any) {
     if (error instanceof NoUpdateAvailableError) {
@@ -110,6 +124,7 @@ export default async function manifestEndpoint(req: NextApiRequest, res: NextApi
           res,
           updateBundlePath,
           runtimeVersion,
+          channel,
           platform,
           protocolVersion
         );
@@ -148,6 +163,7 @@ async function putUpdateInResponseAsync(
   res: NextApiResponse,
   updateBundlePath: string,
   runtimeVersion: string,
+  channel: UpdateChannel,
   platform: string,
   protocolVersion: number
 ): Promise<void> {
@@ -180,6 +196,7 @@ async function putUpdateInResponseAsync(
           filePath: asset.path,
           ext: asset.ext,
           runtimeVersion,
+          channel,
           platform,
           isLaunchAsset: false,
         })
@@ -190,6 +207,7 @@ async function putUpdateInResponseAsync(
       filePath: platformSpecificMetadata.bundle,
       isLaunchAsset: true,
       runtimeVersion,
+      channel,
       platform,
       ext: null,
     }),

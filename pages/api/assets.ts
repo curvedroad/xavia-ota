@@ -4,6 +4,7 @@ import nullthrows from 'nullthrows';
 
 import { UpdateHelper } from '../../apiUtils/helpers/UpdateHelper';
 import { ZipHelper } from '../../apiUtils/helpers/ZipHelper';
+import { getClientUpdateChannel } from '../../apiUtils/security/channel';
 import { isSafeArchivePath, isValidRuntimeVersion } from '../../apiUtils/security/input';
 
 export default async function assetsEndpoint(req: NextApiRequest, res: NextApiResponse) {
@@ -14,6 +15,12 @@ export default async function assetsEndpoint(req: NextApiRequest, res: NextApiRe
   }
 
   const { asset: assetPath, runtimeVersion, platform } = req.query;
+  const channel = getClientUpdateChannel(req.query.channel);
+
+  if (!channel) {
+    res.status(400).json({ error: 'Unsupported channel. Expected either production or qa.' });
+    return;
+  }
 
   if (!isSafeArchivePath(assetPath)) {
     res.statusCode = 400;
@@ -35,7 +42,8 @@ export default async function assetsEndpoint(req: NextApiRequest, res: NextApiRe
 
   try {
     const updateBundlePath = await UpdateHelper.getLatestUpdateBundlePathForRuntimeVersionAsync(
-      runtimeVersion
+      runtimeVersion,
+      channel
     );
     const zip = await ZipHelper.getZipFromStorage(updateBundlePath);
 

@@ -90,6 +90,7 @@ describe('Manifest API', () => {
     // Mock database to return a release with matching updateId
     const mockRelease: Release = {
       id: 'release-id',
+      channel: 'production',
       runtimeVersion: '1.0.0',
       path: 'path/to/update.zip',
       timestamp: '2024-03-20T00:00:00Z',
@@ -131,6 +132,10 @@ describe('Manifest API', () => {
     await manifestEndpoint(req, res);
 
     expect(res._getStatusCode()).toBe(200);
+    expect(mockDatabase.getLatestReleaseRecordForRuntimeVersion).toHaveBeenCalledWith(
+      '1.0.0',
+      'production'
+    );
     expect(UpdateHelper.createNoUpdateAvailableDirectiveAsync).toHaveBeenCalled();
     expect(mockFormData.append).toHaveBeenCalledWith(
       'directive',
@@ -139,10 +144,64 @@ describe('Manifest API', () => {
     );
   });
 
+  it('selects the qa channel when the app sends expo-channel-name', async () => {
+    const mockDatabase = {
+      getLatestReleaseRecordForRuntimeVersion: jest.fn().mockResolvedValue({
+        updateId: 'qa-update-id',
+      }),
+    } as unknown as DatabaseInterface;
+    (DatabaseFactory.getDatabase as jest.Mock).mockReturnValue(mockDatabase);
+    (UpdateHelper.createNoUpdateAvailableDirectiveAsync as jest.Mock).mockResolvedValue({
+      type: 'noUpdateAvailable',
+    });
+    (FormData as unknown as jest.Mock).mockImplementation(() => ({
+      append: jest.fn(),
+      getBoundary: jest.fn().mockReturnValue('boundary'),
+      getBuffer: jest.fn().mockReturnValue(Buffer.from('mock-form-data')),
+    }));
+
+    const { req, res } = createMocks({
+      method: 'GET',
+      headers: {
+        'expo-platform': 'ios',
+        'expo-runtime-version': '1.0.0',
+        'expo-protocol-version': '1',
+        'expo-current-update-id': 'qa-update-id',
+        'expo-channel-name': 'qa',
+      },
+    });
+
+    await manifestEndpoint(req, res);
+
+    expect(res._getStatusCode()).toBe(200);
+    expect(mockDatabase.getLatestReleaseRecordForRuntimeVersion).toHaveBeenCalledWith(
+      '1.0.0',
+      'qa'
+    );
+  });
+
+  it('rejects an unsupported explicit channel before reading the database', async () => {
+    const { req, res } = createMocks({
+      method: 'GET',
+      headers: {
+        'expo-platform': 'ios',
+        'expo-runtime-version': '1.0.0',
+        'expo-protocol-version': '1',
+        'expo-channel-name': 'preview',
+      },
+    });
+
+    await manifestEndpoint(req, res);
+
+    expect(res._getStatusCode()).toBe(400);
+    expect(DatabaseFactory.getDatabase).not.toHaveBeenCalled();
+  });
+
   it('should handle normal update successfully', async () => {
     // Mock database to return a release with different updateId
     const mockRelease: Release = {
       id: 'release-id',
+      channel: 'production',
       runtimeVersion: '1.0.0',
       path: 'path/to/update.zip',
       timestamp: '2024-03-20T00:00:00Z',

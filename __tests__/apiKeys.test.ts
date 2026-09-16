@@ -20,12 +20,14 @@ describe('upload API keys', () => {
       name: 'QA developer',
       createdBy: 'admin@curved-road.com',
       expiresInDays: 30,
+      channel: 'qa',
     });
 
     expect(issued.token).toMatch(/^nbota_[0-9a-f]{12}_[A-Za-z0-9_-]{43}$/);
     expect(createApiKey).toHaveBeenCalledWith(
       expect.objectContaining({
         name: 'QA developer',
+        channel: 'qa',
         keyPrefix: issued.keyPrefix,
         keyHash: expect.any(String),
       })
@@ -44,13 +46,14 @@ describe('upload API keys', () => {
         keyHash: hashApiKey(token),
         expiresAt: '2099-01-01T00:00:00.000Z',
         revokedAt: null,
+        channel: 'qa',
       }),
       markApiKeyUsed,
     });
 
     await expect(authenticateApiKey(`Bearer ${token}`)).resolves.toEqual({
-      type: 'api_key',
-      id: 'key-id',
+      actor: { type: 'api_key', id: 'key-id' },
+      channel: 'qa',
     });
     expect(markApiKeyUsed).toHaveBeenCalledWith('key-id');
   });

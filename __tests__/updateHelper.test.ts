@@ -20,9 +20,13 @@ describe('update release selection', () => {
     (StorageFactory.getStorage as jest.Mock).mockReturnValue({ fileExists });
 
     await expect(
-      UpdateHelper.getLatestUpdateBundlePathForRuntimeVersionAsync('1.0.0')
+      UpdateHelper.getLatestUpdateBundlePathForRuntimeVersionAsync('1.0.0', 'production')
     ).resolves.toBe('updates/1.0.0/20260909000000');
     expect(fileExists).toHaveBeenCalledWith('updates/1.0.0/20260909000000.zip');
+    expect(
+      (DatabaseFactory.getDatabase as jest.Mock).mock.results[0].value
+        .getLatestReleaseRecordForRuntimeVersion
+    ).toHaveBeenCalledWith('1.0.0', 'production');
   });
 
   it('does not inspect storage when the database has no release', async () => {
@@ -31,7 +35,7 @@ describe('update release selection', () => {
     });
 
     await expect(
-      UpdateHelper.getLatestUpdateBundlePathForRuntimeVersionAsync('1.0.0')
+      UpdateHelper.getLatestUpdateBundlePathForRuntimeVersionAsync('1.0.0', 'qa')
     ).rejects.toBeInstanceOf(NoUpdateAvailableError);
     expect(StorageFactory.getStorage).not.toHaveBeenCalled();
   });
@@ -47,7 +51,7 @@ describe('update release selection', () => {
     });
 
     await expect(
-      UpdateHelper.getLatestUpdateBundlePathForRuntimeVersionAsync('1.0.0')
+      UpdateHelper.getLatestUpdateBundlePathForRuntimeVersionAsync('1.0.0', 'production')
     ).rejects.toThrow('Release file is missing');
   });
 });

@@ -64,11 +64,12 @@ export default async function rollbackHandler(req: NextApiRequest, res: NextApiR
 
     const storage = StorageFactory.getStorage();
     const timestamp = moment().utc().format('YYYYMMDDHHmmss');
-    const newPath = `updates/${sourceRelease.runtimeVersion}/${timestamp}.zip`;
+    const newPath = `updates/${sourceRelease.channel}/${sourceRelease.runtimeVersion}/${timestamp}.zip`;
     await storage.copyFile(sourceRelease.path, newPath);
 
     const release = await database.createRelease({
       path: newPath,
+      channel: sourceRelease.channel,
       runtimeVersion: sourceRelease.runtimeVersion,
       timestamp: moment().utc().toString(),
       commitHash: sourceRelease.commitHash,
@@ -84,7 +85,11 @@ export default async function rollbackHandler(req: NextApiRequest, res: NextApiR
       httpStatus: 200,
       targetType: 'release',
       targetId: release.id,
-      metadata: { sourceReleaseId: releaseId, runtimeVersion: sourceRelease.runtimeVersion },
+      metadata: {
+        sourceReleaseId: releaseId,
+        channel: sourceRelease.channel,
+        runtimeVersion: sourceRelease.runtimeVersion,
+      },
     });
     res.status(200).json({ success: true, newPath, releaseId: release.id });
   } catch (error) {

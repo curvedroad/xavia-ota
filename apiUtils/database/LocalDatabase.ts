@@ -10,6 +10,7 @@ import {
   TrackingMetrics,
 } from './DatabaseInterface';
 import { Tables } from './DatabaseFactory';
+import { UpdateChannel } from '../security/channel';
 
 export class PostgresDatabase implements DatabaseInterface {
   private pool: Pool;
@@ -24,21 +25,24 @@ export class PostgresDatabase implements DatabaseInterface {
       options: process.env.POSTGRES_OPTIONS,
     });
   }
-  async getLatestReleaseRecordForRuntimeVersion(runtimeVersion: string): Promise<Release | null> {
+  async getLatestReleaseRecordForRuntimeVersion(
+    runtimeVersion: string,
+    channel: UpdateChannel
+  ): Promise<Release | null> {
     const query = `
-      SELECT id, runtime_version as "runtimeVersion", path, timestamp,
+      SELECT id, channel, runtime_version as "runtimeVersion", path, timestamp,
         commit_hash as "commitHash", commit_message as "commitMessage", update_id as "updateId"
-      FROM ${Tables.RELEASES} WHERE runtime_version = $1
+      FROM ${Tables.RELEASES} WHERE runtime_version = $1 AND channel = $2
       ORDER BY timestamp DESC
       LIMIT 1
     `;
 
-    const { rows } = await this.pool.query(query, [runtimeVersion]);
+    const { rows } = await this.pool.query(query, [runtimeVersion, channel]);
     return rows[0] || null;
   }
   async getReleaseByPath(path: string): Promise<Release | null> {
     const query = `
-      SELECT id, runtime_version as "runtimeVersion", path, timestamp,
+      SELECT id, channel, runtime_version as "runtimeVersion", path, timestamp,
         commit_hash as "commitHash", commit_message as "commitMessage", update_id as "updateId"
       FROM ${Tables.RELEASES} WHERE path = $1
     `;
@@ -86,12 +90,14 @@ export class PostgresDatabase implements DatabaseInterface {
 
   async createRelease(release: Omit<Release, 'id'>): Promise<Release> {
     const query = `
-      INSERT INTO ${Tables.RELEASES} (runtime_version, path, timestamp, commit_hash, commit_message, update_id)
-      VALUES ($1, $2, $3, $4, $5, $6)
-      RETURNING id, runtime_version as "runtimeVersion", path, timestamp, commit_hash as "commitHash", update_id as "updateId"
+      INSERT INTO ${Tables.RELEASES} (channel, runtime_version, path, timestamp, commit_hash, commit_message, update_id)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING id, channel, runtime_version as "runtimeVersion", path, timestamp,
+        commit_hash as "commitHash", commit_message as "commitMessage", update_id as "updateId"
     `;
 
     const values = [
+      release.channel,
       release.runtimeVersion,
       release.path,
       release.timestamp,
@@ -105,7 +111,7 @@ export class PostgresDatabase implements DatabaseInterface {
 
   async getRelease(id: string): Promise<Release | null> {
     const query = `
-      SELECT id, runtime_version as "runtimeVersion", path, timestamp,
+      SELECT id, channel, runtime_version as "runtimeVersion", path, timestamp,
         commit_hash as "commitHash", commit_message as "commitMessage", update_id as "updateId"
       FROM ${Tables.RELEASES} WHERE id = $1
     `;
@@ -116,7 +122,8 @@ export class PostgresDatabase implements DatabaseInterface {
 
   async listReleases(): Promise<Release[]> {
     const query = `
-      SELECT id, runtime_version as "runtimeVersion", path, timestamp, commit_hash as "commitHash", commit_message as "commitMessage"
+      SELECT id, channel, runtime_version as "runtimeVersion", path, timestamp,
+        commit_hash as "commitHash", commit_message as "commitMessage", update_id as "updateId"
       FROM ${Tables.RELEASES}
       ORDER BY timestamp DESC
     `;
@@ -127,20 +134,22 @@ export class PostgresDatabase implements DatabaseInterface {
 
   async createApiKey(apiKey: {
     name: string;
+    channel: UpdateChannel;
     keyPrefix: string;
     keyHash: string;
     createdBy: string;
     expiresAt: string;
   }): Promise<ApiKeyRecord> {
     const query = `
-      INSERT INTO ${Tables.API_KEYS} (name, key_prefix, key_hash, created_by, expires_at)
-      VALUES ($1, $2, $3, $4, $5)
-      RETURNING id, name, key_prefix as "keyPrefix", key_hash as "keyHash",
+      INSERT INTO ${Tables.API_KEYS} (name, channel, key_prefix, key_hash, created_by, expires_at)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING id, name, channel, key_prefix as "keyPrefix", key_hash as "keyHash",
         created_by as "createdBy", created_at as "createdAt", expires_at as "expiresAt",
         last_used_at as "lastUsedAt", revoked_at as "revokedAt"
     `;
     const { rows } = await this.pool.query(query, [
       apiKey.name,
+      apiKey.channel,
       apiKey.keyPrefix,
       apiKey.keyHash,
       apiKey.createdBy,
@@ -151,7 +160,7 @@ export class PostgresDatabase implements DatabaseInterface {
 
   async getApiKeyByPrefix(keyPrefix: string): Promise<ApiKeyRecord | null> {
     const query = `
-      SELECT id, name, key_prefix as "keyPrefix", key_hash as "keyHash",
+      SELECT id, name, channel, key_prefix as "keyPrefix", key_hash as "keyHash",
         created_by as "createdBy", created_at as "createdAt", expires_at as "expiresAt",
         last_used_at as "lastUsedAt", revoked_at as "revokedAt"
       FROM ${Tables.API_KEYS}
@@ -164,7 +173,7 @@ export class PostgresDatabase implements DatabaseInterface {
 
   async listApiKeys(): Promise<Omit<ApiKeyRecord, 'keyHash'>[]> {
     const query = `
-      SELECT id, name, key_prefix as "keyPrefix", created_by as "createdBy",
+      SELECT id, name, channel, key_prefix as "keyPrefix", created_by as "createdBy",
         created_at as "createdAt", expires_at as "expiresAt",
         last_used_at as "lastUsedAt", revoked_at as "revokedAt"
       FROM ${Tables.API_KEYS}
@@ -183,7 +192,7 @@ export class PostgresDatabase implements DatabaseInterface {
       UPDATE ${Tables.API_KEYS}
       SET revoked_at = COALESCE(revoked_at, NOW())
       WHERE id = $1
-      RETURNING id, name, key_prefix as "keyPrefix", key_hash as "keyHash",
+      RETURNING id, name, channel, key_prefix as "keyPrefix", key_hash as "keyHash",
         created_by as "createdBy", created_at as "createdAt", expires_at as "expiresAt",
         last_used_at as "lastUsedAt", revoked_at as "revokedAt"
     `;

@@ -37,6 +37,8 @@ interface Release {
   size: number;
   commitHash: string | null;
   commitMessage: string | null;
+  channel: 'production' | 'qa';
+  storagePresent: boolean;
 }
 
 export default function ReleasesPage() {
@@ -91,6 +93,7 @@ export default function ReleasesPage() {
                 <Thead>
                   <Tr>
                     <Th>Name</Th>
+                    <Th>Channel</Th>
                     <Th>Runtime Version</Th>
                     <Th>Commit Hash</Th>
                     <Th>Commit Message</Th>
@@ -104,112 +107,121 @@ export default function ReleasesPage() {
                     .sort(
                       (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
                     )
-                    .map((release, index) => (
-                      <Tr key={index}>
-                        <Td>{release.path}</Td>
-                        <Td>{release.runtimeVersion}</Td>
-                        <Td>
-                          <Tooltip label={release.commitHash}>
-                            <Text isTruncated w="10rem">
-                              {release.commitHash}
-                            </Text>
-                          </Tooltip>
-                        </Td>
-                        <Td>
-                          <Tooltip label={release.commitMessage}>
-                            <Text isTruncated w="10rem">
-                              {release.commitMessage}
-                            </Text>
-                          </Tooltip>
-                        </Td>
-                        <Td className="min-w-[14rem]">
-                          {moment(release.timestamp).utc().format('MMM, Do  HH:mm')}
-                        </Td>
-                        <Td>{formatFileSize(release.size)}</Td>
-                        <Td justifyItems="center">
-                          {index === 0 ? (
-                            <Tag size="lg" colorScheme="green">
-                              Active Release
-                            </Tag>
-                          ) : (
-                            <Button
-                              variant="solid"
-                              colorScheme="orange"
-                              size="sm"
-                              isDisabled={!release.id}
-                              onClick={async () => {
-                                setIsOpen(true);
-                                setSelectedRelease(release);
-                              }}>
-                              <AlertDialog
-                                isOpen={isOpen}
-                                leastDestructiveRef={cancelRef}
-                                onClose={() => setIsOpen(false)}
-                                isCentered>
-                                <AlertDialogOverlay>
-                                  <AlertDialogContent>
-                                    <AlertDialogHeader fontSize="lg" fontWeight="bold">
-                                      Rollback Release
-                                    </AlertDialogHeader>
+                    .map((release, index, sortedReleases) => {
+                      const isActive =
+                        sortedReleases.findIndex(
+                          (candidate) =>
+                            candidate.channel === release.channel &&
+                            candidate.runtimeVersion === release.runtimeVersion
+                        ) === index;
+                      return (
+                        <Tr key={index}>
+                          <Td>{release.path}</Td>
+                          <Td>{release.channel}</Td>
+                          <Td>{release.runtimeVersion}</Td>
+                          <Td>
+                            <Tooltip label={release.commitHash}>
+                              <Text isTruncated w="10rem">
+                                {release.commitHash}
+                              </Text>
+                            </Tooltip>
+                          </Td>
+                          <Td>
+                            <Tooltip label={release.commitMessage}>
+                              <Text isTruncated w="10rem">
+                                {release.commitMessage}
+                              </Text>
+                            </Tooltip>
+                          </Td>
+                          <Td className="min-w-[14rem]">
+                            {moment(release.timestamp).utc().format('MMM, Do  HH:mm')}
+                          </Td>
+                          <Td>{formatFileSize(release.size)}</Td>
+                          <Td justifyItems="center">
+                            {isActive ? (
+                              <Tag size="lg" colorScheme="green">
+                                Active Release
+                              </Tag>
+                            ) : (
+                              <Button
+                                variant="solid"
+                                colorScheme="orange"
+                                size="sm"
+                                isDisabled={!release.id}
+                                onClick={async () => {
+                                  setIsOpen(true);
+                                  setSelectedRelease(release);
+                                }}>
+                                <AlertDialog
+                                  isOpen={isOpen}
+                                  leastDestructiveRef={cancelRef}
+                                  onClose={() => setIsOpen(false)}
+                                  isCentered>
+                                  <AlertDialogOverlay>
+                                    <AlertDialogContent>
+                                      <AlertDialogHeader fontSize="lg" fontWeight="bold">
+                                        Rollback Release
+                                      </AlertDialogHeader>
 
-                                    <AlertDialogBody>
-                                      Are you sure you want to rollback to this release?
-                                      <Tag
-                                        size="lg"
-                                        colorScheme="green"
-                                        mt={4}
-                                        padding={4}
-                                        className="w-full">
-                                        <Text fontSize="sm">
-                                          Commit Hash: {selectedRelease?.commitHash}
-                                        </Text>
-                                      </Tag>
-                                      <Tag size="lg" colorScheme="orange" mt={4} padding={4}>
-                                        <Text fontSize="sm">
-                                          This will promote this release to be the active release
-                                          with a new timestamp.
-                                        </Text>
-                                      </Tag>
-                                    </AlertDialogBody>
+                                      <AlertDialogBody>
+                                        Are you sure you want to rollback to this release?
+                                        <Tag
+                                          size="lg"
+                                          colorScheme="green"
+                                          mt={4}
+                                          padding={4}
+                                          className="w-full">
+                                          <Text fontSize="sm">
+                                            Commit Hash: {selectedRelease?.commitHash}
+                                          </Text>
+                                        </Tag>
+                                        <Tag size="lg" colorScheme="orange" mt={4} padding={4}>
+                                          <Text fontSize="sm">
+                                            This will promote this release to be the active release
+                                            with a new timestamp.
+                                          </Text>
+                                        </Tag>
+                                      </AlertDialogBody>
 
-                                    <AlertDialogFooter>
-                                      <Button ref={cancelRef} onClick={() => setIsOpen(false)}>
-                                        Cancel
-                                      </Button>
-                                      <Button
-                                        colorScheme="red"
-                                        onClick={async () => {
-                                          const response = await fetch('/api/rollback', {
-                                            method: 'POST',
-                                            headers: {
-                                              'Content-Type': 'application/json',
-                                            },
-                                            body: JSON.stringify({
-                                              releaseId: selectedRelease?.id,
-                                            }),
-                                          });
+                                      <AlertDialogFooter>
+                                        <Button ref={cancelRef} onClick={() => setIsOpen(false)}>
+                                          Cancel
+                                        </Button>
+                                        <Button
+                                          colorScheme="red"
+                                          onClick={async () => {
+                                            const response = await fetch('/api/rollback', {
+                                              method: 'POST',
+                                              headers: {
+                                                'Content-Type': 'application/json',
+                                              },
+                                              body: JSON.stringify({
+                                                releaseId: selectedRelease?.id,
+                                              }),
+                                            });
 
-                                          if (!response.ok) {
-                                            throw new Error('Rollback failed');
-                                          }
+                                            if (!response.ok) {
+                                              throw new Error('Rollback failed');
+                                            }
 
-                                          showToast('Rollback successful', 'success');
-                                          fetchReleases();
-                                          setIsOpen(false);
-                                        }}
-                                        ml={3}>
-                                        Rollback
-                                      </Button>
-                                    </AlertDialogFooter>
-                                  </AlertDialogContent>
-                                </AlertDialogOverlay>
-                              </AlertDialog>
-                              Rollback to this release
-                            </Button>
-                          )}
-                        </Td>
-                      </Tr>
-                    ))}
+                                            showToast('Rollback successful', 'success');
+                                            fetchReleases();
+                                            setIsOpen(false);
+                                          }}
+                                          ml={3}>
+                                          Rollback
+                                        </Button>
+                                      </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                  </AlertDialogOverlay>
+                                </AlertDialog>
+                                Rollback to this release
+                              </Button>
+                            )}
+                          </Td>
+                        </Tr>
+                      );
+                    })}
                 </Tbody>
               </Table>
             )}

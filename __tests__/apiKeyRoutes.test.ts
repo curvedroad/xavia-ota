@@ -51,10 +51,11 @@ describe('API key administration routes', () => {
       keyPrefix: '0123456789ab',
       token: `nbota_0123456789ab_${'A'.repeat(43)}`,
       expiresAt: '2026-12-01T00:00:00.000Z',
+      channel: 'qa',
     });
     const { req, res } = createMocks({
       method: 'POST',
-      body: { name: 'QA', expiresInDays: 30 },
+      body: { name: 'QA', channel: 'qa', expiresInDays: 30 },
     });
 
     await apiKeysHandler(req, res);
@@ -62,6 +63,7 @@ describe('API key administration routes', () => {
     expect(res._getStatusCode()).toBe(201);
     expect(issueApiKey).toHaveBeenCalledWith({
       name: 'QA',
+      channel: 'qa',
       createdBy: actor.id,
       expiresInDays: 30,
     });
@@ -74,7 +76,7 @@ describe('API key administration routes', () => {
     (isSameOriginRequest as jest.Mock).mockReturnValue(false);
     const { req, res } = createMocks({
       method: 'POST',
-      body: { name: 'QA', expiresInDays: 30 },
+      body: { name: 'QA', channel: 'qa', expiresInDays: 30 },
     });
 
     await apiKeysHandler(req, res);

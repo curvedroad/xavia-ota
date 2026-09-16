@@ -9,6 +9,7 @@ import { ZipHelper } from '../../apiUtils/helpers/ZipHelper';
 import { getLogger } from '../../apiUtils/logger';
 import { authenticateApiKey } from '../../apiUtils/security/apiKeys';
 import { recordAudit } from '../../apiUtils/security/audit';
+import { isUpdateChannel, UpdateChannel } from '../../apiUtils/security/channel';
 import { isSafeArchivePath, isValidRuntimeVersion } from '../../apiUtils/security/input';
 import { getRequestContext } from '../../apiUtils/security/request';
 import { StorageFactory } from '../../apiUtils/storage/StorageFactory';
@@ -31,13 +32,14 @@ export default async function uploadHandler(req: NextApiRequest, res: NextApiRes
     return;
   }
 
-  const actor = await authenticateApiKey(getBearerHeader(req));
-  if (!actor) {
+  const authenticatedKey = await authenticateApiKey(getBearerHeader(req));
+  if (!authenticatedKey) {
     logger.warn('Rejected upload authentication', getRequestContext(req));
     res.setHeader('WWW-Authenticate', 'Bearer');
     res.status(401).json({ error: 'A valid upload API key is required' });
     return;
   }
+  const { actor } = authenticatedKey;
 
   const contentLength = Number(req.headers['content-length'] ?? '0');
   if (Number.isFinite(contentLength) && contentLength > MAX_UPLOAD_BYTES + 1024 * 1024) {
@@ -54,24 +56,42 @@ export default async function uploadHandler(req: NextApiRequest, res: NextApiRes
 
   const form = formidable({
     maxFiles: 1,
-    maxFields: 4,
+    maxFields: 5,
     maxFileSize: MAX_UPLOAD_BYTES,
     maxFieldsSize: 64 * 1024,
     allowEmptyFiles: false,
   });
   let temporaryFilePath: string | undefined;
   let runtimeVersion: string | undefined;
+  let channel: UpdateChannel | undefined;
 
   try {
     const [fields, files] = await form.parse(req);
     const file = files.file?.[0];
     runtimeVersion = fields.runtimeVersion?.[0];
+    const channelValue = fields.channel?.[0];
     const commitHash = fields.commitHash?.[0];
     const commitMessage = (fields.commitMessage?.[0] || 'No message provided').trim();
     temporaryFilePath = file?.filepath;
 
-    if (!file || !runtimeVersion || !commitHash) {
-      throw new UploadValidationError('Missing file, runtime version or commit hash');
+    if (!file || !runtimeVersion || !commitHash || !channelValue) {
+      throw new UploadValidationError('Missing file, runtime version, channel or commit hash');
+    }
+    if (!isUpdateChannel(channelValue)) {
+      throw new UploadValidationError('Invalid channel');
+    }
+    channel = channelValue;
+    if (authenticatedKey.channel !== channel) {
+      await recordAudit({
+        req,
+        actor,
+        action: 'release.upload',
+        outcome: 'denied',
+        httpStatus: 403,
+        metadata: { channel, keyChannel: authenticatedKey.channel },
+      });
+      res.status(403).json({ error: 'API key is not authorized for this channel' });
+      return;
     }
     if (!isValidRuntimeVersion(runtimeVersion)) {
       throw new UploadValidationError('Invalid runtime version');
@@ -107,11 +127,12 @@ export default async function uploadHandler(req: NextApiRequest, res: NextApiRes
     const updateId = HashHelper.convertSHA256HashToUUID(updateHash);
     const storage = StorageFactory.getStorage();
     const timestamp = moment().utc().format('YYYYMMDDHHmmss');
-    const updatePath = `updates/${runtimeVersion}`;
+    const updatePath = `updates/${channel}/${runtimeVersion}`;
     const path = await storage.uploadFile(`${updatePath}/${timestamp}.zip`, zipContent);
 
     const release = await DatabaseFactory.getDatabase().createRelease({
       path,
+      channel,
       runtimeVersion,
       timestamp: moment().utc().toString(),
       commitHash,
@@ -127,7 +148,7 @@ export default async function uploadHandler(req: NextApiRequest, res: NextApiRes
       httpStatus: 200,
       targetType: 'release',
       targetId: release.id,
-      metadata: { runtimeVersion, commitHash, updateId },
+      metadata: { channel, runtimeVersion, commitHash, updateId },
     });
     res.status(200).json({ success: true, path, releaseId: release.id });
   } catch (error) {
@@ -138,7 +159,7 @@ export default async function uploadHandler(req: NextApiRequest, res: NextApiRes
       action: 'release.upload',
       outcome: 'failure',
       httpStatus: status,
-      metadata: runtimeVersion ? { runtimeVersion } : undefined,
+      metadata: runtimeVersion || channel ? { runtimeVersion, channel } : undefined,
     });
     console.error('Upload error:', error);
     res.status(status).json({

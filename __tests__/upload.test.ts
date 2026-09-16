@@ -20,7 +20,10 @@ jest.mock('formidable');
 describe('Upload API', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    (authenticateApiKey as jest.Mock).mockResolvedValue({ type: 'api_key', id: 'key-id' });
+    (authenticateApiKey as jest.Mock).mockResolvedValue({
+      actor: { type: 'api_key', id: 'key-id' },
+      channel: 'qa',
+    });
   });
 
   it('returns 405 for non-POST requests', async () => {
@@ -42,6 +45,7 @@ describe('Upload API', () => {
       parse: jest.fn().mockResolvedValue([
         {
           runtimeVersion: ['1.0.0'],
+          channel: ['qa'],
           commitHash: ['abc1234'],
           commitMessage: ['Test commit message'],
         },
@@ -69,7 +73,7 @@ describe('Upload API', () => {
     );
 
     const mockStorage = {
-      uploadFile: jest.fn().mockResolvedValue('updates/1.0.0/timestamp.zip'),
+      uploadFile: jest.fn().mockResolvedValue('updates/qa/1.0.0/timestamp.zip'),
     };
     const mockDatabase = {
       createRelease: jest.fn().mockResolvedValue({ id: 'release-id' }),
@@ -86,15 +90,16 @@ describe('Upload API', () => {
     expect(res._getStatusCode()).toBe(200);
     expect(JSON.parse(res._getData())).toEqual({
       success: true,
-      path: 'updates/1.0.0/timestamp.zip',
+      path: 'updates/qa/1.0.0/timestamp.zip',
       releaseId: 'release-id',
     });
     expect(mockStorage.uploadFile).toHaveBeenCalledWith(
-      expect.stringMatching(/^updates\/1\.0\.0\/\d{14}\.zip$/),
+      expect.stringMatching(/^updates\/qa\/1\.0\.0\/\d{14}\.zip$/),
       mockZip
     );
     expect(mockDatabase.createRelease).toHaveBeenCalledWith({
-      path: 'updates/1.0.0/timestamp.zip',
+      path: 'updates/qa/1.0.0/timestamp.zip',
+      channel: 'qa',
       runtimeVersion: '1.0.0',
       timestamp: expect.any(String),
       commitHash: 'abc1234',
@@ -118,12 +123,35 @@ describe('Upload API', () => {
     expect(res._getStatusCode()).toBe(400);
   });
 
+  it('rejects an upload when the API key belongs to another channel', async () => {
+    (formidable as unknown as jest.Mock).mockReturnValue({
+      parse: jest
+        .fn()
+        .mockResolvedValue([
+          { runtimeVersion: ['1.0.0'], channel: ['production'], commitHash: ['abc1234'] },
+          { file: [{ filepath: 'test.zip' }] },
+        ]),
+    });
+    const { req, res } = createMocks({
+      method: 'POST',
+      headers: { authorization: 'Bearer token' },
+    });
+
+    await uploadHandler(req, res);
+
+    expect(res._getStatusCode()).toBe(403);
+    expect(StorageFactory.getStorage).not.toHaveBeenCalled();
+    expect(recordAudit).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'release.upload', outcome: 'denied', httpStatus: 403 })
+    );
+  });
+
   it('rejects an invalid release archive as client input', async () => {
     (formidable as unknown as jest.Mock).mockReturnValue({
       parse: jest
         .fn()
         .mockResolvedValue([
-          { runtimeVersion: ['1.0.0'], commitHash: ['abc1234'] },
+          { runtimeVersion: ['1.0.0'], channel: ['qa'], commitHash: ['abc1234'] },
           { file: [{ filepath: 'invalid.zip' }] },
         ]),
     });
@@ -144,7 +172,7 @@ describe('Upload API', () => {
       parse: jest
         .fn()
         .mockResolvedValue([
-          { runtimeVersion: ['1.0.0'], commitHash: ['abc1234'] },
+          { runtimeVersion: ['1.0.0'], channel: ['qa'], commitHash: ['abc1234'] },
           { file: [{ filepath: 'test.zip' }] },
         ]),
     });
@@ -167,10 +195,12 @@ describe('Upload API', () => {
 
   it('rejects a runtime version that differs from expoconfig.json', async () => {
     (formidable as unknown as jest.Mock).mockReturnValue({
-      parse: jest.fn().mockResolvedValue([
-        { runtimeVersion: ['1.0.0'], commitHash: ['abc1234'] },
-        { file: [{ filepath: 'test.zip' }] },
-      ]),
+      parse: jest
+        .fn()
+        .mockResolvedValue([
+          { runtimeVersion: ['1.0.0'], channel: ['qa'], commitHash: ['abc1234'] },
+          { file: [{ filepath: 'test.zip' }] },
+        ]),
     });
     (ZipHelper.loadZipFile as jest.Mock).mockResolvedValue(Buffer.from('zip'));
     (ZipHelper.getFileFromZip as jest.Mock)
@@ -200,6 +230,7 @@ describe('Upload API', () => {
       parse: jest.fn().mockResolvedValue([
         {
           runtimeVersion: ['1.0.0'],
+          channel: ['qa'],
           commitHash: ['abc1234'],
           commitMessage: ['x'.repeat(256)],
         },

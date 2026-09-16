@@ -3,6 +3,7 @@ import mime from 'mime';
 import { HashHelper } from './HashHelper';
 import { ZipHelper } from './ZipHelper';
 import { DatabaseFactory } from '../database/DatabaseFactory';
+import { UpdateChannel } from '../security/channel';
 import { StorageFactory } from '../storage/StorageFactory';
 
 export class NoUpdateAvailableError extends Error {}
@@ -13,6 +14,7 @@ export type GetAssetMetadataArg =
       ext: null;
       isLaunchAsset: true;
       runtimeVersion: string;
+      channel: UpdateChannel;
       platform: string;
     }
   | {
@@ -21,15 +23,18 @@ export type GetAssetMetadataArg =
       ext: string;
       isLaunchAsset: false;
       runtimeVersion: string;
+      channel: UpdateChannel;
       platform: string;
     };
 
 export class UpdateHelper {
   static async getLatestUpdateBundlePathForRuntimeVersionAsync(
-    runtimeVersion: string
+    runtimeVersion: string,
+    channel: UpdateChannel
   ): Promise<string> {
     const release = await DatabaseFactory.getDatabase().getLatestReleaseRecordForRuntimeVersion(
-      runtimeVersion
+      runtimeVersion,
+      channel
     );
     if (!release) {
       throw new NoUpdateAvailableError();
@@ -62,7 +67,11 @@ export class UpdateHelper {
       key,
       fileExtension: `.${keyExtensionSuffix}`,
       contentType,
-      url: `${process.env.HOST}/api/assets?asset=${arg.filePath}&runtimeVersion=${arg.runtimeVersion}&platform=${arg.platform}`,
+      url: `${process.env.HOST}/api/assets?asset=${encodeURIComponent(
+        arg.filePath
+      )}&runtimeVersion=${encodeURIComponent(arg.runtimeVersion)}&platform=${
+        arg.platform
+      }&channel=${arg.channel}`,
     };
   }
 

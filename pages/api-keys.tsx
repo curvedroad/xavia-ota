@@ -40,6 +40,7 @@ interface ApiKeySummary {
   expiresAt: string;
   lastUsedAt: string | null;
   revokedAt: string | null;
+  channel: 'production' | 'qa';
 }
 
 interface IssuedApiKey {
@@ -48,12 +49,14 @@ interface IssuedApiKey {
   keyPrefix: string;
   token: string;
   expiresAt: string;
+  channel: 'production' | 'qa';
 }
 
 export default function ApiKeysPage() {
   const [apiKeys, setApiKeys] = useState<ApiKeySummary[]>([]);
   const [name, setName] = useState('');
   const [expiresInDays, setExpiresInDays] = useState(90);
+  const [channel, setChannel] = useState<'production' | 'qa'>('qa');
   const [issued, setIssued] = useState<IssuedApiKey | null>(null);
   const [error, setError] = useState('');
   const [isCreating, setIsCreating] = useState(false);
@@ -78,7 +81,7 @@ export default function ApiKeysPage() {
       const response = await fetch('/api/api-keys', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim(), expiresInDays }),
+        body: JSON.stringify({ name: name.trim(), channel, expiresInDays }),
       });
       const data = await response.json();
       if (!response.ok) {
@@ -88,6 +91,7 @@ export default function ApiKeysPage() {
       setIssued(data.apiKey);
       setName('');
       setExpiresInDays(90);
+      setChannel('qa');
       onClose();
       await loadApiKeys();
     } catch (createError) {
@@ -100,6 +104,7 @@ export default function ApiKeysPage() {
   const openCreateModal = () => {
     setName('');
     setExpiresInDays(90);
+    setChannel('qa');
     setError('');
     onOpen();
   };
@@ -152,6 +157,7 @@ export default function ApiKeysPage() {
               <Tr>
                 <Th>이름</Th>
                 <Th>Prefix</Th>
+                <Th>채널</Th>
                 <Th>발급자</Th>
                 <Th>만료</Th>
                 <Th>마지막 사용</Th>
@@ -167,6 +173,7 @@ export default function ApiKeysPage() {
                   <Tr key={apiKey.id}>
                     <Td>{apiKey.name}</Td>
                     <Td fontFamily="mono">{apiKey.keyPrefix}</Td>
+                    <Td>{apiKey.channel}</Td>
                     <Td>{apiKey.createdBy}</Td>
                     <Td>{new Date(apiKey.expiresAt).toLocaleString()}</Td>
                     <Td>
@@ -200,6 +207,15 @@ export default function ApiKeysPage() {
               <ModalCloseButton isDisabled={isCreating} />
               <ModalBody>
                 <VStack align="stretch" spacing={4}>
+                  <FormControl isRequired>
+                    <FormLabel>채널</FormLabel>
+                    <Select
+                      value={channel}
+                      onChange={(event) => setChannel(event.target.value as 'production' | 'qa')}>
+                      <option value="qa">QA</option>
+                      <option value="production">Production</option>
+                    </Select>
+                  </FormControl>
                   <FormControl isRequired>
                     <FormLabel>키 이름</FormLabel>
                     <Input

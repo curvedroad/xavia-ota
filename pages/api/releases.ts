@@ -17,30 +17,29 @@ export default async function releasesHandler(req: NextApiRequest, res: NextApiR
 
   try {
     const storage = StorageFactory.getStorage();
-    const directories = await storage.listDirectories('updates/');
+    const registeredReleases = await DatabaseFactory.getDatabase().listReleases();
+    const filesByDirectory = new Map<string, Awaited<ReturnType<typeof storage.listFiles>>>();
 
-    const releasesWithCommitHash = await DatabaseFactory.getDatabase().listReleases();
+    const releases = await Promise.all(
+      registeredReleases.map(async (release) => {
+        const slashIndex = release.path.lastIndexOf('/');
+        const directory = release.path.slice(0, slashIndex);
+        const fileName = release.path.slice(slashIndex + 1);
+        let files = filesByDirectory.get(directory);
+        if (!files) {
+          files = await storage.listFiles(directory);
+          filesByDirectory.set(directory, files);
+        }
+        const file = files.find((candidate) => candidate.name === fileName);
 
-    const releases = [];
-    for (const directory of directories) {
-      const folderPath = `updates/${directory}`;
-      const files = await storage.listFiles(folderPath);
-      const runtimeVersion = directory;
-
-      for (const file of files) {
-        const release = releasesWithCommitHash.find((r) => r.path === `${folderPath}/${file.name}`);
-        const commitHash = release ? release.commitHash : null;
-        releases.push({
-          id: release?.id ?? null,
-          path: release?.path || `${folderPath}/${file.name}`,
-          runtimeVersion,
-          timestamp: file.created_at,
-          size: file.metadata.size,
-          commitHash,
-          commitMessage: release?.commitMessage,
-        });
-      }
-    }
+        return {
+          ...release,
+          timestamp: file?.created_at || release.timestamp,
+          size: file?.metadata.size ?? 0,
+          storagePresent: !!file,
+        };
+      })
+    );
 
     await recordAudit({
       req,
