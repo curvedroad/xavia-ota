@@ -63,7 +63,7 @@ export default async function assetsEndpoint(req: NextApiRequest, res: NextApiRe
       return;
     }
 
-    const asset = await ZipHelper.getFileFromZip(zip, assetPath);
+    const asset = await ZipHelper.getCachedFileFromZip(updateBundlePath, zip, assetPath);
 
     res.statusCode = 200;
     res.setHeader('cache-control', 'private, max-age=0');

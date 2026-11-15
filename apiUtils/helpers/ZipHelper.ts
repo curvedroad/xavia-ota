@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import fs from 'fs';
 import yauzl, { Entry } from 'yauzl';
 
@@ -11,20 +12,76 @@ const MAX_ENTRY_BYTES = 128 * 1024 * 1024;
 const MAX_TOTAL_UNCOMPRESSED_BYTES = 512 * 1024 * 1024;
 const MAX_COMPRESSION_RATIO = 200;
 
-// Bundle paths carry an upload timestamp, so a cached archive never goes stale.
+// Bundle paths carry an upload timestamp, so cached data never goes stale.
 // Keep the most recently used archives within a memory budget instead of expiring them.
-const DEFAULT_ZIP_CACHE_MAX_MB = 256;
+// Next.js bundles each API route separately, so every route using ZipHelper has its own cache.
+const DEFAULT_ZIP_CACHE_MAX_MB = 128;
 
-function zipCacheMaxBytes(): number {
-  const mb = Number(process.env.ZIP_CACHE_MAX_MB);
-  return (Number.isFinite(mb) && mb >= 0 ? mb : DEFAULT_ZIP_CACHE_MAX_MB) * 1024 * 1024;
+// Extracted files served by /api/assets (the ~18MB launch bundles above all).
+const DEFAULT_ZIP_ENTRY_CACHE_MAX_MB = 64;
+// Entry hashes are a few KB per bundle, so a small count bound is enough.
+const MAX_HASHED_BUNDLES = 20;
+
+function cacheMaxBytes(envName: string, defaultMb: number): number {
+  const mb = Number(process.env[envName]);
+  return (Number.isFinite(mb) && mb >= 0 ? mb : defaultMb) * 1024 * 1024;
+}
+
+export interface ZipEntryHash {
+  sha256Base64: string;
+  md5Hex: string;
+}
+
+// Keep values within maxBytes, evicting the least recently used first (Map order).
+class LruByteCache {
+  private values: Map<string, Buffer> = new Map();
+
+  get(key: string): Buffer | undefined {
+    const value = this.values.get(key);
+    if (value) {
+      this.values.delete(key);
+      this.values.set(key, value);
+    }
+    return value;
+  }
+
+  set(key: string, value: Buffer, maxBytes: number): void {
+    if (value.length > maxBytes) return;
+    this.values.delete(key);
+    this.values.set(key, value);
+    let total = Array.from(this.values.values()).reduce((sum, cached) => sum + cached.length, 0);
+    for (const cachedKey of Array.from(this.values.keys())) {
+      if (total <= maxBytes) break;
+      total -= this.values.get(cachedKey)?.length ?? 0;
+      this.values.delete(cachedKey);
+    }
+  }
+
+  clear(): void {
+    this.values.clear();
+  }
+}
+
+// Concurrent callers for the same key share one in-flight load.
+async function shared<T>(pending: Map<string, Promise<T>>, key: string, load: () => Promise<T>) {
+  const existing = pending.get(key);
+  if (existing) return existing;
+  const promise = load();
+  pending.set(key, promise);
+  try {
+    return await promise;
+  } finally {
+    pending.delete(key);
+  }
 }
 
 export class ZipHelper {
-  // Map order is the LRU order: oldest first.
-  private static zipCache: Map<string, ZipArchive> = new Map();
-  // One download per bundle; concurrent requests share it.
+  private static zipCache = new LruByteCache();
   private static pendingZips: Map<string, Promise<ZipArchive>> = new Map();
+  private static entryCache = new LruByteCache();
+  private static pendingEntries: Map<string, Promise<Buffer>> = new Map();
+  private static entryHashes: Map<string, Map<string, ZipEntryHash>> = new Map();
+  private static pendingHashes: Map<string, Promise<Map<string, ZipEntryHash>>> = new Map();
 
   static async loadZipFile(filePath: string): Promise<ZipArchive> {
     const zip = fs.readFileSync(filePath);
@@ -34,44 +91,127 @@ export class ZipHelper {
 
   static async getZipFromStorage(updateBundlePath: string): Promise<ZipArchive> {
     const cached = this.zipCache.get(updateBundlePath);
-    if (cached) {
-      this.zipCache.delete(updateBundlePath);
-      this.zipCache.set(updateBundlePath, cached);
-      return cached;
-    }
+    if (cached) return cached;
 
-    const pending = this.pendingZips.get(updateBundlePath);
-    if (pending) return pending;
-
-    const download = (async () => {
+    return shared(this.pendingZips, updateBundlePath, async () => {
       const zip = await StorageFactory.getStorage().downloadFile(`${updateBundlePath}.zip`);
       await this.validate(zip);
-      this.cacheZip(updateBundlePath, zip);
+      this.zipCache.set(
+        updateBundlePath,
+        zip,
+        cacheMaxBytes('ZIP_CACHE_MAX_MB', DEFAULT_ZIP_CACHE_MAX_MB)
+      );
       return zip;
-    })();
-    this.pendingZips.set(updateBundlePath, download);
-    try {
-      return await download;
-    } finally {
-      this.pendingZips.delete(updateBundlePath);
-    }
+    });
+  }
+
+  /** Same bytes as getFileFromZip, extracted once per bundle file and shared. */
+  static async getCachedFileFromZip(
+    updateBundlePath: string,
+    zip: ZipArchive,
+    filePath: string
+  ): Promise<Buffer> {
+    const key = `${updateBundlePath}:${filePath}`;
+    const cached = this.entryCache.get(key);
+    if (cached) return cached;
+
+    return shared(this.pendingEntries, key, async () => {
+      const file = await this.getFileFromZip(zip, filePath);
+      this.entryCache.set(
+        key,
+        file,
+        cacheMaxBytes('ZIP_ENTRY_CACHE_MAX_MB', DEFAULT_ZIP_ENTRY_CACHE_MAX_MB)
+      );
+      return file;
+    });
+  }
+
+  /** sha256/md5 of every file in the bundle, read in one sequential pass and kept per bundle. */
+  static async getEntryHashes(
+    updateBundlePath: string,
+    zip: ZipArchive
+  ): Promise<Map<string, ZipEntryHash>> {
+    const cached = this.entryHashes.get(updateBundlePath);
+    if (cached) return cached;
+
+    return shared(this.pendingHashes, updateBundlePath, async () => {
+      const hashes = await this.hashEntries(zip);
+      this.entryHashes.delete(updateBundlePath);
+      this.entryHashes.set(updateBundlePath, hashes);
+      const oldest = Array.from(this.entryHashes.keys());
+      while (this.entryHashes.size > MAX_HASHED_BUNDLES) this.entryHashes.delete(oldest.shift()!);
+      return hashes;
+    });
   }
 
   static clearCache(): void {
     this.zipCache.clear();
     this.pendingZips.clear();
+    this.entryCache.clear();
+    this.pendingEntries.clear();
+    this.entryHashes.clear();
+    this.pendingHashes.clear();
   }
 
-  private static cacheZip(updateBundlePath: string, zip: ZipArchive): void {
-    const maxBytes = zipCacheMaxBytes();
-    if (zip.length > maxBytes) return;
-    this.zipCache.set(updateBundlePath, zip);
-    let total = Array.from(this.zipCache.values()).reduce((sum, cached) => sum + cached.length, 0);
-    for (const path of Array.from(this.zipCache.keys())) {
-      if (total <= maxBytes) break;
-      total -= this.zipCache.get(path)?.length ?? 0;
-      this.zipCache.delete(path);
-    }
+  private static hashEntries(zip: ZipArchive): Promise<Map<string, ZipEntryHash>> {
+    return new Promise((resolve, reject) => {
+      yauzl.fromBuffer(zip, { lazyEntries: true, validateEntrySizes: true }, (error, zipFile) => {
+        if (error || !zipFile) {
+          reject(error ?? new Error('Invalid zip archive'));
+          return;
+        }
+
+        const hashes = new Map<string, ZipEntryHash>();
+        let settled = false;
+        const fail = (reason: Error) => {
+          if (settled) return;
+          settled = true;
+          zipFile.close();
+          reject(reason);
+        };
+
+        zipFile.on('entry', (entry: Entry) => {
+          try {
+            validateEntry(entry);
+          } catch (validationError) {
+            fail(validationError as Error);
+            return;
+          }
+          if (entry.fileName.endsWith('/')) {
+            zipFile.readEntry();
+            return;
+          }
+
+          zipFile.openReadStream(entry, (streamError, stream) => {
+            if (streamError || !stream) {
+              fail(streamError ?? new Error(`Unable to read zip entry: ${entry.fileName}`));
+              return;
+            }
+            const sha256 = crypto.createHash('sha256');
+            const md5 = crypto.createHash('md5');
+            stream.on('data', (chunk: Buffer) => {
+              sha256.update(chunk);
+              md5.update(chunk);
+            });
+            stream.once('error', fail);
+            stream.once('end', () => {
+              hashes.set(entry.fileName, {
+                sha256Base64: sha256.digest('base64'),
+                md5Hex: md5.digest('hex'),
+              });
+              zipFile.readEntry();
+            });
+          });
+        });
+        zipFile.once('error', fail);
+        zipFile.once('end', () => {
+          if (settled) return;
+          settled = true;
+          resolve(hashes);
+        });
+        zipFile.readEntry();
+      });
+    });
   }
 
   static async hasFile(zip: ZipArchive, filePath: string): Promise<boolean> {

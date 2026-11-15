@@ -53,12 +53,11 @@ export class UpdateHelper {
 
   static async getAssetMetadataAsync(arg: GetAssetMetadataArg) {
     const zip = await ZipHelper.getZipFromStorage(arg.updateBundlePath);
-    const asset = await ZipHelper.getFileFromZip(zip, arg.filePath);
+    const entryHash = (await ZipHelper.getEntryHashes(arg.updateBundlePath, zip)).get(arg.filePath);
+    if (!entryHash) throw new Error(`File not found in zip: ${arg.filePath}`);
 
-    const assetHash = HashHelper.getBase64URLEncoding(
-      HashHelper.createHash(asset, 'sha256', 'base64')
-    );
-    const key = HashHelper.createHash(asset, 'md5', 'hex');
+    const assetHash = HashHelper.getBase64URLEncoding(entryHash.sha256Base64);
+    const key = entryHash.md5Hex;
     const keyExtensionSuffix = arg.isLaunchAsset ? 'bundle' : arg.ext;
     const contentType = arg.isLaunchAsset ? 'application/javascript' : mime.getType(arg.ext);
 

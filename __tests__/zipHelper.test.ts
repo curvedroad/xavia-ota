@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import yazl from 'yazl';
 
 import { ZipHelper } from '../apiUtils/helpers/ZipHelper';
@@ -50,6 +51,21 @@ describe('ZipHelper.getZipFromStorage', () => {
 
     expect(downloadFile).toHaveBeenCalledTimes(1);
     expect(results.every((result) => result === zip)).toBe(true);
+  });
+
+  it('hashes every file in one pass with the same values as hashing the extracted file', async () => {
+    const zip = await createZip([
+      ['metadata.json', Buffer.from('{}')],
+      ['assets/a.png', Buffer.from('image-bytes')],
+    ]);
+    const hashes = await ZipHelper.getEntryHashes('updates/production/1.7.0/2', zip);
+    const file = await ZipHelper.getFileFromZip(zip, 'assets/a.png');
+
+    expect(hashes.get('assets/a.png')).toEqual({
+      sha256Base64: createHash('sha256').update(file).digest('base64'),
+      md5Hex: createHash('md5').update(file).digest('hex'),
+    });
+    expect(hashes.size).toBe(2);
   });
 });
 

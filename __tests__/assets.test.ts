@@ -91,7 +91,7 @@ describe('Assets API', () => {
     );
     (UpdateHelper.getMetadataAsync as jest.Mock).mockResolvedValue(mockMetadata);
     (ZipHelper.getZipFromStorage as jest.Mock).mockResolvedValue({});
-    (ZipHelper.getFileFromZip as jest.Mock).mockResolvedValue(Buffer.from('test'));
+    (ZipHelper.getCachedFileFromZip as jest.Mock).mockResolvedValue(Buffer.from('test'));
 
     const { req, res } = createMocks({
       method: 'GET',
@@ -119,7 +119,7 @@ describe('Assets API', () => {
       metadataJson: { fileMetadata: { ios: { assets: [], bundle: 'bundle.js' } } },
     });
     (ZipHelper.getZipFromStorage as jest.Mock).mockResolvedValue({});
-    (ZipHelper.getFileFromZip as jest.Mock).mockResolvedValue(Buffer.from('bundle'));
+    (ZipHelper.getCachedFileFromZip as jest.Mock).mockResolvedValue(Buffer.from('bundle'));
 
     const { req, res } = createMocks({
       method: 'GET',
@@ -169,6 +169,6 @@ describe('Assets API', () => {
     await assetsEndpoint(req, res);
 
     expect(res._getStatusCode()).toBe(404);
-    expect(ZipHelper.getFileFromZip).not.toHaveBeenCalled();
+    expect(ZipHelper.getCachedFileFromZip).not.toHaveBeenCalled();
   });
 });
