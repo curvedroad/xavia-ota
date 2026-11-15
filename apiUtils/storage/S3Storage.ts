@@ -50,7 +50,8 @@ export class S3Storage implements StorageInterface {
     if (!body) {
       throw new Error('No body found in response');
     }
-    return Buffer.from(body);
+    // Wrap the downloaded bytes without copying them.
+    return Buffer.from(body.buffer, body.byteOffset, body.byteLength);
   }
 
   async fileExists(path: string): Promise<boolean> {

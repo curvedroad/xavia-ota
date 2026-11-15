@@ -1,6 +1,7 @@
 import yazl from 'yazl';
 
 import { ZipHelper } from '../apiUtils/helpers/ZipHelper';
+import { StorageFactory } from '../apiUtils/storage/StorageFactory';
 
 describe('ZipHelper', () => {
   it('validates and reads a normal OTA archive', async () => {
@@ -28,6 +29,27 @@ describe('ZipHelper', () => {
     await expect(ZipHelper.getFileFromZip(zip, 'metadata.json', 4)).rejects.toThrow(
       'exceeds the allowed size'
     );
+  });
+});
+
+describe('ZipHelper.getZipFromStorage', () => {
+  afterEach(() => {
+    ZipHelper.clearCache();
+    jest.restoreAllMocks();
+  });
+
+  it('downloads a bundle once for concurrent requests and keeps it cached', async () => {
+    const zip = await createZip([['metadata.json', Buffer.from('{}')]]);
+    const downloadFile = jest.fn().mockResolvedValue(zip);
+    jest.spyOn(StorageFactory, 'getStorage').mockReturnValue({ downloadFile } as never);
+
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () => ZipHelper.getZipFromStorage('updates/production/1.7.0/1'))
+    );
+    await ZipHelper.getZipFromStorage('updates/production/1.7.0/1');
+
+    expect(downloadFile).toHaveBeenCalledTimes(1);
+    expect(results.every((result) => result === zip)).toBe(true);
   });
 });
 

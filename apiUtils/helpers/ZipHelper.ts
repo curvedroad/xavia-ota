@@ -6,19 +6,25 @@ import { StorageFactory } from '../storage/StorageFactory';
 
 export type ZipArchive = Buffer;
 
-interface CachedZip {
-  zip: ZipArchive;
-  timestamp: number;
-}
-
 const MAX_ENTRY_COUNT = 20_000;
 const MAX_ENTRY_BYTES = 128 * 1024 * 1024;
 const MAX_TOTAL_UNCOMPRESSED_BYTES = 512 * 1024 * 1024;
 const MAX_COMPRESSION_RATIO = 200;
 
+// Bundle paths carry an upload timestamp, so a cached archive never goes stale.
+// Keep the most recently used archives within a memory budget instead of expiring them.
+const DEFAULT_ZIP_CACHE_MAX_MB = 256;
+
+function zipCacheMaxBytes(): number {
+  const mb = Number(process.env.ZIP_CACHE_MAX_MB);
+  return (Number.isFinite(mb) && mb >= 0 ? mb : DEFAULT_ZIP_CACHE_MAX_MB) * 1024 * 1024;
+}
+
 export class ZipHelper {
-  private static zipCache: Map<string, CachedZip> = new Map();
-  private static readonly CACHE_DURATION = 5 * 60 * 1000;
+  // Map order is the LRU order: oldest first.
+  private static zipCache: Map<string, ZipArchive> = new Map();
+  // One download per bundle; concurrent requests share it.
+  private static pendingZips: Map<string, Promise<ZipArchive>> = new Map();
 
   static async loadZipFile(filePath: string): Promise<ZipArchive> {
     const zip = fs.readFileSync(filePath);
@@ -27,17 +33,45 @@ export class ZipHelper {
   }
 
   static async getZipFromStorage(updateBundlePath: string): Promise<ZipArchive> {
-    const storage = StorageFactory.getStorage();
     const cached = this.zipCache.get(updateBundlePath);
-
-    if (cached && Date.now() - cached.timestamp < this.CACHE_DURATION) {
-      return cached.zip;
+    if (cached) {
+      this.zipCache.delete(updateBundlePath);
+      this.zipCache.set(updateBundlePath, cached);
+      return cached;
     }
 
-    const zip = await storage.downloadFile(`${updateBundlePath}.zip`);
-    await this.validate(zip);
-    this.zipCache.set(updateBundlePath, { zip, timestamp: Date.now() });
-    return zip;
+    const pending = this.pendingZips.get(updateBundlePath);
+    if (pending) return pending;
+
+    const download = (async () => {
+      const zip = await StorageFactory.getStorage().downloadFile(`${updateBundlePath}.zip`);
+      await this.validate(zip);
+      this.cacheZip(updateBundlePath, zip);
+      return zip;
+    })();
+    this.pendingZips.set(updateBundlePath, download);
+    try {
+      return await download;
+    } finally {
+      this.pendingZips.delete(updateBundlePath);
+    }
+  }
+
+  static clearCache(): void {
+    this.zipCache.clear();
+    this.pendingZips.clear();
+  }
+
+  private static cacheZip(updateBundlePath: string, zip: ZipArchive): void {
+    const maxBytes = zipCacheMaxBytes();
+    if (zip.length > maxBytes) return;
+    this.zipCache.set(updateBundlePath, zip);
+    let total = Array.from(this.zipCache.values()).reduce((sum, cached) => sum + cached.length, 0);
+    for (const path of Array.from(this.zipCache.keys())) {
+      if (total <= maxBytes) break;
+      total -= this.zipCache.get(path)?.length ?? 0;
+      this.zipCache.delete(path);
+    }
   }
 
   static async hasFile(zip: ZipArchive, filePath: string): Promise<boolean> {
